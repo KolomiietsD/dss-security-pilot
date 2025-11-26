@@ -1,0 +1,12 @@
+# created by virtualenv automatically
+.venv/
+venv/
+
+__pycache__/
+*.py[cod]
+
+#IDE
+.idea/
+
+#Локальна база
+db.sqlite3
