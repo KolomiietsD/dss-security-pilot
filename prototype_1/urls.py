@@ -16,9 +16,12 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
-from core.views import home, about
+from core.views import home, about, crowdstrike_view
+
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('', home, name='home'),  # головна сторінка сайту
     path('about/', about, name='about'),
+
+    path("crowdstrike/", crowdstrike_view, name="crowdstrike"),
 ]

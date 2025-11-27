@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}CrowdStrike{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1 class="mb-3">CrowdStrike – хости</h1>
+
+    {% if error %}
+        <div class="alert alert-danger">
+            Помилка при зверненні до CrowdStrike API: {{ error }}
+        </div>
+    {% endif %}
+
+    {% if devices %}
+        <table class="table table-striped table-hover">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Hostname</th>
+                    <th>Платформа</th>
+                    <th>IP</th>
+                    <th>Last seen</th>
+                    <th>Онлайн-статус</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for d in devices %}
+                    <tr>
+                        <td>{{ forloop.counter }}</td>
+                        <td>{{ d.hostname }}</td>
+                        <td>{{ d.platform_name }}</td>
+                        <td>{{ d.local_ip }}</td>
+                        <td>{{ d.last_seen }}</td>
+                        <td>
+                            {% if d.online_status == "online" %}
+                                <span class="badge text-bg-success">Online</span>
+                            {% elif d.online_status == "offline" %}
+                                <span class="badge text-bg-secondary">Offline</span>
+                            {% else %}
+                                <span class="badge text-bg-warning">Unknown</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>Немає даних з CrowdStrike (немає хостів або проблема з доступом).</p>
+    {% endif %}
+</div>
+{% endblock %}
+
