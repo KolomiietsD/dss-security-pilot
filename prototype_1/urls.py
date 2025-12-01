@@ -16,7 +16,7 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
-from core.views import home, about, crowdstrike_view, crowdstrike_data
+from core.views import home, about, crowdstrike_view, crowdstrike_data, assets_data
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -26,4 +26,6 @@ urlpatterns = [
     path("crowdstrike/", crowdstrike_view, name="crowdstrike"),
 
     path("crowdstrike/data/", crowdstrike_data, name="crowdstrike_data"),
+
+    path("assets/data/", assets_data, name="assets_data"),
 ]

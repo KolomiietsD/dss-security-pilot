@@ -1,8 +1,99 @@
 {% extends "base.html" %}
 
-{% block title %}Головна сторінка{% endblock %}
+{% block title %}Активи{% endblock %}
 
 {% block content %}
-<h1>Вітаю!</h1>
-<p>Це моя перша гарна сторінка в Django.</p>
+<div class="container mt-4">
+    <h1 class="mb-3">Активи</h1>
+
+    <p class="text-muted mb-2">
+        Короткий список хостів (зараз тільки з CrowdStrike).
+    </p>
+
+    <!-- Блок для помилок -->
+    <div id="error-block" class="alert alert-danger d-none"></div>
+
+    <!-- Loader -->
+    <div id="loader" class="d-flex align-items-center mb-2">
+        <div class="spinner-border spinner-border-sm me-2" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <span>Завантаження списку активів…</span>
+    </div>
+
+    <!-- Малесенький список: тільки № і hostname -->
+    <div class="card" style="max-width: 400px;">
+        <div class="card-body p-2">
+            <ul id="assets-list" class="list-group list-group-flush small">
+                <!-- JS сюди додасть елементи -->
+            </ul>
+        </div>
+    </div>
+
+    <p id="no-data-msg" class="text-muted mt-2 d-none">
+        Поки що немає даних про активи.
+    </p>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const loader = document.getElementById("loader");
+    const errorBlock = document.getElementById("error-block");
+    const noDataMsg = document.getElementById("no-data-msg");
+    const list = document.getElementById("assets-list");
+
+    // якщо в urls.py є name='assets_data', можна так:
+    // const url = "{% url 'assets_data' %}";
+    const url = "/assets/data/";
+
+    fetch(url)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error("HTTP " + response.status);
+            }
+            return response.json();
+        })
+        .then(data => {
+            loader.classList.add("d-none");
+
+            if (!data.success) {
+                errorBlock.textContent = "Помилка при отриманні списку активів: " + (data.error || "Невідома помилка");
+                errorBlock.classList.remove("d-none");
+                noDataMsg.classList.remove("d-none");
+                return;
+            }
+
+            const assets = data.assets || [];
+            if (assets.length === 0) {
+                noDataMsg.classList.remove("d-none");
+                return;
+            }
+
+            // ТЕПЕР БЕЗ ОБМЕЖЕННЯ: показуємо всі активи
+            assets.forEach((a, index) => {
+                const li = document.createElement("li");
+                li.className = "list-group-item d-flex justify-content-between align-items-center py-1";
+
+                const numSpan = document.createElement("span");
+                numSpan.className = "text-muted me-2";
+                numSpan.textContent = index + 1;
+
+                const hostSpan = document.createElement("span");
+                hostSpan.textContent = a.hostname ?? "(без імені)";
+
+                li.appendChild(numSpan);
+                li.appendChild(hostSpan);
+                list.appendChild(li);
+            });
+        })
+        .catch(err => {
+            loader.classList.add("d-none");
+            errorBlock.textContent = "Помилка при завантаженні даних: " + err.message;
+            errorBlock.classList.remove("d-none");
+            noDataMsg.classList.remove("d-none");
+        });
+});
+</script>
+
 {% endblock %}
+
