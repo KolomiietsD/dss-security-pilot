@@ -6,48 +6,118 @@
 <div class="container mt-4">
     <h1 class="mb-3">CrowdStrike – хости</h1>
 
-    {% if error %}
-        <div class="alert alert-danger">
-            Помилка при зверненні до CrowdStrike API: {{ error }}
-        </div>
-    {% endif %}
+    <!-- Блок для помилки від JS/API -->
+    <div id="error-block" class="alert alert-danger d-none"></div>
 
-    {% if devices %}
-        <table class="table table-striped table-hover">
-            <thead>
-                <tr>
-                    <th>#</th>
-                    <th>Hostname</th>
-                    <th>Платформа</th>
-                    <th>IP</th>
-                    <th>Last seen</th>
-                    <th>Онлайн-статус</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for d in devices %}
-                    <tr>
-                        <td>{{ forloop.counter }}</td>
-                        <td>{{ d.hostname }}</td>
-                        <td>{{ d.platform_name }}</td>
-                        <td>{{ d.local_ip }}</td>
-                        <td>{{ d.last_seen }}</td>
-                        <td>
-                            {% if d.online_status == "online" %}
-                                <span class="badge text-bg-success">Online</span>
-                            {% elif d.online_status == "offline" %}
-                                <span class="badge text-bg-secondary">Offline</span>
-                            {% else %}
-                                <span class="badge text-bg-warning">Unknown</span>
-                            {% endif %}
-                        </td>
-                    </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    {% else %}
-        <p>Немає даних з CrowdStrike (немає хостів або проблема з доступом).</p>
-    {% endif %}
+    <!-- Loader, який показуємо поки тягнемо дані -->
+    <div id="loader" class="d-flex align-items-center mb-3">
+        <div class="spinner-border me-2" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <span>Завантаження даних з CrowdStrike…</span>
+    </div>
+
+    <!-- Таблиця, тіло якої заповнить JS -->
+    <table class="table table-striped table-hover">
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Hostname</th>
+                <th>Платформа</th>
+                <th>IP</th>
+                <th>Last seen</th>
+                <th>Онлайн-статус</th>
+            </tr>
+        </thead>
+        <tbody id="devices-tbody">
+            <!-- Сюди додамо рядки через JS -->
+        </tbody>
+    </table>
+
+    <!-- Повідомлення, якщо даних немає -->
+    <p id="no-data-msg" class="d-none">
+        Немає даних з CrowdStrike (немає хостів або проблема з доступом).
+    </p>
 </div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const loader = document.getElementById("loader");
+    const tbody = document.getElementById("devices-tbody");
+    const errorBlock = document.getElementById("error-block");
+    const noDataMsg = document.getElementById("no-data-msg");
+
+    // Можеш або так (якщо налаштоване ім'я маршруту):
+    // const url = "{% url 'crowdstrike_data' %}";
+    // або просто хардкодом:
+    const url = "/crowdstrike/data/";
+
+    fetch(url)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error("HTTP " + response.status);
+            }
+            return response.json();
+        })
+        .then(data => {
+            loader.classList.add("d-none");
+
+            if (!data.success) {
+                errorBlock.textContent = "Помилка при зверненні до CrowdStrike API: " + (data.error || "Невідома помилка");
+                errorBlock.classList.remove("d-none");
+                noDataMsg.classList.remove("d-none");
+                return;
+            }
+
+            const devices = data.devices || [];
+            if (devices.length === 0) {
+                noDataMsg.classList.remove("d-none");
+                return;
+            }
+
+            devices.forEach((d, index) => {
+                const tr = document.createElement("tr");
+
+                function td(text) {
+                    const cell = document.createElement("td");
+                    cell.textContent = text || "";
+                    return cell;
+                }
+
+                tr.appendChild(td(index + 1));                 // #
+                tr.appendChild(td(d.hostname));                 // Hostname
+                tr.appendChild(td(d.platform_name));            // Платформа
+                tr.appendChild(td(d.local_ip));                 // IP
+                tr.appendChild(td(d.last_seen));                // Last seen
+
+                // Онлайн-статус
+                const statusTd = document.createElement("td");
+                const span = document.createElement("span");
+
+                if (d.online_status === "online") {
+                    span.className = "badge text-bg-success";
+                    span.textContent = "Online";
+                } else if (d.online_status === "offline") {
+                    span.className = "badge text-bg-secondary";
+                    span.textContent = "Offline";
+                } else {
+                    span.className = "badge text-bg-warning";
+                    span.textContent = "Unknown";
+                }
+
+                statusTd.appendChild(span);
+                tr.appendChild(statusTd);
+
+                tbody.appendChild(tr);
+            });
+        })
+        .catch(err => {
+            loader.classList.add("d-none");
+            errorBlock.textContent = "Помилка при завантаженні даних: " + err.message;
+            errorBlock.classList.remove("d-none");
+            noDataMsg.classList.remove("d-none");
+        });
+});
+</script>
 {% endblock %}
 
