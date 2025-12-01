@@ -35,6 +35,42 @@
     </p>
 </div>
 
+    <!-- Модальне вікно з інформацією про актив -->
+<div class="modal fade" id="assetModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h5 class="modal-title" id="assetModalTitle">Актив</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body py-2">
+        <dl class="row mb-0 small">
+          <dt class="col-4">Hostname</dt>
+          <dd class="col-8" id="md-hostname"></dd>
+
+          <dt class="col-4">IP</dt>
+          <dd class="col-8" id="md-ip"></dd>
+
+          <dt class="col-4">Платформа</dt>
+          <dd class="col-8" id="md-platform"></dd>
+
+          <dt class="col-4">Вендор</dt>
+          <dd class="col-8" id="md-vendor"></dd>
+
+          <dt class="col-4">Статус</dt>
+          <dd class="col-8" id="md-status"></dd>
+
+          <dt class="col-4">Ризик</dt>
+          <dd class="col-8" id="md-risk"></dd>
+        </dl>
+      </div>
+      <div class="modal-footer py-2">
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Закрити</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 document.addEventListener("DOMContentLoaded", function () {
     const loader = document.getElementById("loader");
@@ -42,9 +78,39 @@ document.addEventListener("DOMContentLoaded", function () {
     const noDataMsg = document.getElementById("no-data-msg");
     const list = document.getElementById("assets-list");
 
+    // тут будемо тримати всі активи, щоб по кліку знайти потрібний
+    let assetsData = [];
+
     // якщо в urls.py є name='assets_data', можна так:
     // const url = "{% url 'assets_data' %}";
     const url = "/assets/data/";
+
+    function showAssetModal(asset) {
+        document.getElementById("assetModalTitle").textContent =
+            asset.hostname || "Актив";
+
+        document.getElementById("md-hostname").textContent = asset.hostname || "—";
+        document.getElementById("md-ip").textContent = asset.ip || "—";
+        document.getElementById("md-platform").textContent = asset.platform || "—";
+        document.getElementById("md-vendor").textContent = asset.vendor || "—";
+
+        let statusText = "—";
+        if (asset.online_status === "online") statusText = "Online";
+        else if (asset.online_status === "offline") statusText = "Offline";
+        else if (asset.online_status === "unknown") statusText = "Unknown";
+        document.getElementById("md-status").textContent = statusText;
+
+        let riskText = "—";
+        if (asset.risk_score != null) {
+            riskText = (asset.risk_score * 100).toFixed(0) + " %";
+        }
+        document.getElementById("md-risk").textContent = riskText;
+
+        // показуємо Bootstrap-модалку
+        const modalEl = document.getElementById("assetModal");
+        const modal = new bootstrap.Modal(modalEl);
+        modal.show();
+    }
 
     fetch(url)
         .then(response => {
@@ -64,12 +130,13 @@ document.addEventListener("DOMContentLoaded", function () {
             }
 
             const assets = data.assets || [];
+            assetsData = assets;  // зберігаємо
+
             if (assets.length === 0) {
                 noDataMsg.classList.remove("d-none");
                 return;
             }
 
-            // ТЕПЕР БЕЗ ОБМЕЖЕННЯ: показуємо всі активи
             assets.forEach((a, index) => {
                 const li = document.createElement("li");
                 li.className = "list-group-item d-flex justify-content-between align-items-center py-1";
@@ -78,11 +145,17 @@ document.addEventListener("DOMContentLoaded", function () {
                 numSpan.className = "text-muted me-2";
                 numSpan.textContent = index + 1;
 
-                const hostSpan = document.createElement("span");
-                hostSpan.textContent = a.hostname ?? "(без імені)";
+                // hostname як "посилання"
+                const hostBtn = document.createElement("button");
+                hostBtn.type = "button";
+                hostBtn.className = "btn btn-link btn-sm p-0 text-decoration-none";
+                hostBtn.textContent = a.hostname ?? "(без імені)";
+                hostBtn.addEventListener("click", function () {
+                    showAssetModal(a);
+                });
 
                 li.appendChild(numSpan);
-                li.appendChild(hostSpan);
+                li.appendChild(hostBtn);
                 list.appendChild(li);
             });
         })
@@ -94,6 +167,7 @@ document.addEventListener("DOMContentLoaded", function () {
         });
 });
 </script>
+
 
 {% endblock %}
 
