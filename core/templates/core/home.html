@@ -21,8 +21,8 @@
         <span>Завантаження списку активів…</span>
     </div>
 
-    <!-- Малесенький список: тільки № і hostname -->
-    <div class="card" style="max-width: 400px;">
+    <!-- Список активів з акордеоном -->
+    <div class="card" style="max-width: 700px;">
         <div class="card-body p-2">
             <ul id="assets-list" class="list-group list-group-flush small">
                 <!-- JS сюди додасть елементи -->
@@ -35,53 +35,6 @@
     </p>
 </div>
 
-<!-- Модальне вікно з інформацією про актив -->
-<div class="modal fade" id="assetModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content">
-      <div class="modal-header py-2">
-        <h5 class="modal-title" id="assetModalTitle">Актив</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-      </div>
-      <div class="modal-body py-2">
-        <dl class="row mb-0 small">
-          <dt class="col-4">Hostname</dt>
-          <dd class="col-8" id="md-hostname"></dd>
-
-          <dt class="col-4">IP</dt>
-          <dd class="col-8" id="md-ip"></dd>
-
-          <dt class="col-4">Платформа</dt>
-          <dd class="col-8" id="md-platform"></dd>
-
-          <dt class="col-4">Вендор</dt>
-          <dd class="col-8" id="md-vendor"></dd>
-
-          <dt class="col-4">Статус</dt>
-          <dd class="col-8" id="md-status"></dd>
-
-          <dt class="col-4">Ризик</dt>
-          <dd class="col-8" id="md-risk"></dd>
-        </dl>
-
-        <hr class="my-2">
-
-        <div class="small">
-          <h6 class="mb-1">Детекти</h6>
-          <div id="md-detections-loading" class="text-muted d-none">
-            Завантаження детектів…
-          </div>
-          <div id="md-detections-error" class="text-danger d-none"></div>
-          <ul id="md-detections-list" class="list-unstyled mb-0"></ul>
-        </div>
-      </div>
-      <div class="modal-footer py-2">
-        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Закрити</button>
-      </div>
-    </div>
-  </div>
-</div>
-
 <script>
 document.addEventListener("DOMContentLoaded", function () {
     const loader = document.getElementById("loader");
@@ -89,173 +42,291 @@ document.addEventListener("DOMContentLoaded", function () {
     const noDataMsg = document.getElementById("no-data-msg");
     const list = document.getElementById("assets-list");
 
-    // тут будемо тримати всі активи, щоб по кліку знайти потрібний (якщо знадобиться)
+    // всі активи
     let assetsData = [];
+    // всі детекти (спільний список з CrowdStrike)
+    let detectsData = [];
+    let detectsLoaded = false;
+    let detectsLoadError = null;
 
-    // якщо в urls.py є name='assets_data', можна так:
-    // const url = "{% url 'assets_data' %}";
-    const url = "/assets/data/";
+    const assetsUrl = "/assets/data/";
+    const detectsUrl = "/crowdstrike/detects/";  // endpoint, який у тебе вже є
 
-    function showAssetModal(asset) {
-        document.getElementById("assetModalTitle").textContent =
-            asset.hostname || "Актив";
+    function findHostnameInDetect(d) {
+        return (
+            d.hostname ||
+            d.device_hostname ||
+            (d.device && d.device.hostname) ||
+            null
+        );
+    }
 
-        document.getElementById("md-hostname").textContent = asset.hostname || "—";
-        document.getElementById("md-ip").textContent = asset.ip || "—";
-        document.getElementById("md-platform").textContent = asset.platform || "—";
-        document.getElementById("md-vendor").textContent = asset.vendor || "—";
+    function getSeverityBadgeClass(sev) {
+        if (!sev) return "bg-secondary";
+        switch (sev.toLowerCase()) {
+            case "low":
+                return "bg-success";
+            case "medium":
+                return "bg-warning";
+            case "high":
+                return "bg-danger";
+            case "critical":
+                return "bg-dark";
+            default:
+                return "bg-secondary";
+        }
+    }
 
-        let statusText = "—";
-        if (asset.online_status === "online") statusText = "Online";
-        else if (asset.online_status === "offline") statusText = "Offline";
-        else if (asset.online_status === "unknown") statusText = "Unknown";
-        document.getElementById("md-status").textContent = statusText;
+    function buildDetailsContent(container, asset) {
+        container.innerHTML = "";
+
+        // 1) Основна інфа по активу
+        const infoDiv = document.createElement("div");
+        infoDiv.className = "mb-2";
+
+        const statusText =
+            asset.online_status === "online" ? "Online" :
+            asset.online_status === "offline" ? "Offline" :
+            asset.online_status === "unknown" ? "Unknown" : "—";
 
         let riskText = "—";
         if (asset.risk_score != null) {
             riskText = (asset.risk_score * 100).toFixed(0) + " %";
         }
-        document.getElementById("md-risk").textContent = riskText;
 
-        // ---------- детекти ----------
-        const detectionsList = document.getElementById("md-detections-list");
-        const detectionsLoading = document.getElementById("md-detections-loading");
-        const detectionsError = document.getElementById("md-detections-error");
+        infoDiv.innerHTML = ''
+            + '<div><strong>IP:</strong> ' + (asset.ip || "—") + '</div>'
+            + '<div><strong>Платформа:</strong> ' + (asset.platform || "—") + '</div>'
+            + '<div><strong>Вендор:</strong> ' + (asset.vendor || "—") + '</div>'
+            + '<div><strong>Статус:</strong> ' + statusText + '</div>'
+            + '<div><strong>Ризик:</strong> ' + riskText + '</div>';
 
-        // скидаємо попередній стан
-        detectionsList.innerHTML = "";
-        detectionsError.textContent = "";
-        detectionsError.classList.add("d-none");
-        detectionsLoading.classList.add("d-none");
+        container.appendChild(infoDiv);
+
+        // 2) Блок детектів
+        const detBlock = document.createElement("div");
+
+        const title = document.createElement("div");
+        title.className = "fw-bold mb-1";
+        title.textContent = "Детекти";
+        detBlock.appendChild(title);
+
+        const msgDiv = document.createElement("div");
+        detBlock.appendChild(msgDiv);
+
+        const ul = document.createElement("ul");
+        ul.className = "list-unstyled mb-0";
+        detBlock.appendChild(ul);
+
+        container.appendChild(detBlock);
 
         if (!asset.hostname) {
-            detectionsList.innerHTML =
-                '<li class="text-muted">Немає hostname, щоб знайти детекти.</li>';
-        } else {
-            detectionsLoading.classList.remove("d-none");
-
-            const detUrl = `/assets/detections/?hostname=${encodeURIComponent(
-                asset.hostname
-            )}`;
-
-            fetch(detUrl)
-                .then((response) => {
-                    if (!response.ok) {
-                        throw new Error("HTTP " + response.status);
-                    }
-                    return response.json();
-                })
-                .then((data) => {
-                    detectionsLoading.classList.add("d-none");
-
-                    if (!data.success) {
-                        detectionsError.textContent =
-                            "Помилка при отриманні детектів: " +
-                            (data.error || "Невідома помилка");
-                        detectionsError.classList.remove("d-none");
-                        return;
-                    }
-
-                    const detections = data.detections || [];
-
-                    if (detections.length === 0) {
-                        detectionsList.innerHTML =
-                            '<li class="text-muted">Для цього хоста детектів не знайдено.</li>';
-                        return;
-                    }
-
-                    detections.forEach((d) => {
-                        const li = document.createElement("li");
-                        li.className = "mb-1";
-
-                        const sev = d.severity || "unknown";
-                        const tactic = d.tactic || "";
-                        const technique = d.technique || "";
-                        const time = d.start_time || d.timestamp || "";
-                        const status = d.status || "";
-
-                        li.innerHTML =
-                            `<strong>${sev}</strong>` +
-                            (status ? ` · <span>${status}</span>` : "") +
-                            (tactic || technique ? ` · ${tactic} ${technique}` : "") +
-                            (time
-                                ? `<br><span class="text-muted">${time}</span>`
-                                : "");
-
-                        detectionsList.appendChild(li);
-                    });
-                })
-                .catch((err) => {
-                    detectionsLoading.classList.add("d-none");
-                    detectionsError.textContent =
-                        "Помилка при завантаженні детектів: " + err.message;
-                    detectionsError.classList.remove("d-none");
-                });
+            msgDiv.innerHTML =
+                '<span class="text-muted">Немає hostname, щоб знайти детекти.</span>';
+            return;
         }
-        // ---------- кінець блоку детектів ----------
 
-        // показуємо Bootstrap-модалку
-        const modalEl = document.getElementById("assetModal");
-        const modal = new bootstrap.Modal(modalEl);
-        modal.show();
+        if (!detectsLoaded && !detectsLoadError) {
+            msgDiv.innerHTML =
+                '<span class="text-muted">Детекти ще завантажуються… Спробуйте за мить.</span>';
+            return;
+        }
+
+        if (detectsLoadError) {
+            msgDiv.innerHTML =
+                '<span class="text-danger">Помилка при завантаженні детектів: '
+                + detectsLoadError +
+                '</span>';
+            return;
+        }
+
+        const hostDetects = detectsData.filter(function (d) {
+            const detHostname = findHostnameInDetect(d);
+            return detHostname === asset.hostname;
+        });
+
+        if (hostDetects.length === 0) {
+            msgDiv.innerHTML =
+                '<span class="text-muted">Для цього хоста детектів не знайдено.</span>';
+            return;
+        }
+
+        msgDiv.innerHTML = ""; // чистимо повідомлення
+
+                hostDetects.forEach(function (d) {
+            const li = document.createElement("li");
+            li.className = "mb-2 p-2 border rounded";
+
+            const sev = d.severity || "unknown";
+            const sevClass = getSeverityBadgeClass(sev);
+            const tactic = d.tactic || "";
+            const technique = d.technique || "";
+            const time = d.start_time || d.timestamp || "";
+            const status = d.status || "";
+            const id = d.id || d.detect_id || "";
+            const titleText = d.title || d.name || "";
+            const policy = d.policy_name || d.rule_name || "";
+
+            // НОВЕ: тип та опис
+            const typeText = d.type || d.alert_type || d.event_type || "";
+            const desc = d.description || d.summary || "";
+
+            let inner = '';
+
+            inner += '<div class="d-flex justify-content-between align-items-start">';
+            inner += '  <div>';
+            inner += '    <span class="badge ' + sevClass + ' me-1 text-uppercase">' + sev + '</span>';
+            if (status) {
+                inner += '    <span class="text-muted small">' + status + '</span>';
+            }
+            if (titleText) {
+                inner += '    <div class="fw-semibold">' + titleText + '</div>';
+            }
+            if (typeText) {
+                inner += '    <div class="small">Тип: <span class="text-muted">' + typeText + '</span></div>';
+            }
+            if (tactic || technique) {
+                inner += '    <div class="small text-muted">' + tactic + ' ' + technique + '</div>';
+            }
+            if (policy) {
+                inner += '    <div class="small text-muted">Policy: ' + policy + '</div>';
+            }
+            if (desc) {
+                inner += '    <div class="small mt-1">' + desc + '</div>';
+            }
+            inner += '  </div>';
+            if (time) {
+                inner += '  <div class="text-end small text-muted ms-2">' + time + '</div>';
+            }
+            inner += '</div>';
+            if (id) {
+                inner += '<div class="small text-muted mt-1">ID: ' + id + '</div>';
+            }
+
+            li.innerHTML = inner;
+            ul.appendChild(li);
+        });
+
     }
 
-    fetch(url)
-        .then(response => {
+    function createAssetRow(asset, index) {
+        const li = document.createElement("li");
+        li.className = "list-group-item py-1";
+
+        // ШАПКА рядка (номер, hostname, стрілка)
+        const header = document.createElement("div");
+        header.className = "d-flex justify-content-between align-items-center";
+
+        const left = document.createElement("div");
+        left.className = "d-flex align-items-center";
+
+        const numSpan = document.createElement("span");
+        numSpan.className = "text-muted me-2";
+        numSpan.textContent = index + 1;
+
+        const hostLabel = document.createElement("span");
+        hostLabel.textContent = asset.hostname || "(без імені)";
+        hostLabel.className = "fw-semibold";
+
+        left.appendChild(numSpan);
+        left.appendChild(hostLabel);
+
+        const toggleBtn = document.createElement("button");
+        toggleBtn.type = "button";
+        toggleBtn.className = "btn btn-sm btn-light border-0";
+        toggleBtn.setAttribute("aria-expanded", "false");
+        toggleBtn.textContent = "▶"; // закритий стан
+
+        header.appendChild(left);
+        header.appendChild(toggleBtn);
+
+        // БЛОК, що розкривається
+        const details = document.createElement("div");
+        details.className = "mt-2 small d-none"; // сховано за замовчуванням
+
+        // Логіка відкриття/закриття
+        toggleBtn.addEventListener("click", function () {
+            const isOpen = !details.classList.contains("d-none");
+
+            if (isOpen) {
+                // згорнути
+                details.classList.add("d-none");
+                toggleBtn.textContent = "▶";
+                toggleBtn.setAttribute("aria-expanded", "false");
+            } else {
+                // розгорнути
+                buildDetailsContent(details, asset);
+                details.classList.remove("d-none");
+                toggleBtn.textContent = "▼";
+                toggleBtn.setAttribute("aria-expanded", "true");
+            }
+        });
+
+        li.appendChild(header);
+        li.appendChild(details);
+
+        return li;
+    }
+
+    // 1) Завантажуємо активи
+    fetch(assetsUrl)
+        .then(function (response) {
             if (!response.ok) {
                 throw new Error("HTTP " + response.status);
             }
             return response.json();
         })
-        .then(data => {
+        .then(function (data) {
             loader.classList.add("d-none");
 
             if (!data.success) {
-                errorBlock.textContent = "Помилка при отриманні списку активів: " + (data.error || "Невідома помилка");
-                errorBlock.classList.remove("d-none");
-                noDataMsg.classList.remove("d-none");
-                return;
+                throw new Error(data.error || "Невідома помилка при отриманні активів");
             }
 
             const assets = data.assets || [];
-            assetsData = assets;  // зберігаємо
+            assetsData = assets;
 
             if (assets.length === 0) {
                 noDataMsg.classList.remove("d-none");
                 return;
             }
 
-            assets.forEach((a, index) => {
-                const li = document.createElement("li");
-                li.className = "list-group-item d-flex justify-content-between align-items-center py-1";
-
-                const numSpan = document.createElement("span");
-                numSpan.className = "text-muted me-2";
-                numSpan.textContent = index + 1;
-
-                // hostname як "посилання"
-                const hostBtn = document.createElement("button");
-                hostBtn.type = "button";
-                hostBtn.className = "btn btn-link btn-sm p-0 text-decoration-none";
-                hostBtn.textContent = a.hostname ?? "(без імені)";
-                hostBtn.addEventListener("click", function () {
-                    showAssetModal(a);
-                });
-
-                li.appendChild(numSpan);
-                li.appendChild(hostBtn);
+            assets.forEach(function (a, index) {
+                const li = createAssetRow(a, index);
                 list.appendChild(li);
             });
         })
-        .catch(err => {
+        .catch(function (err) {
             loader.classList.add("d-none");
             errorBlock.textContent = "Помилка при завантаженні даних: " + err.message;
             errorBlock.classList.remove("d-none");
             noDataMsg.classList.remove("d-none");
         });
+
+    // 2) Паралельно у фоні тягнемо всі недавні детекти CrowdStrike
+    fetch(detectsUrl)
+        .then(function (response) {
+            if (!response.ok) {
+                throw new Error("HTTP " + response.status);
+            }
+            return response.json();
+        })
+        .then(function (data) {
+            if (!data.success) {
+                throw new Error(data.error || "Невідома помилка при отриманні детектів");
+            }
+            detectsData = data.detects || [];
+            detectsLoaded = true;
+        })
+        .catch(function (err) {
+            detectsLoadError = err.message;
+            detectsLoaded = true;  // щоб не висіти в "проміжному" стані
+        });
 });
 </script>
 
 {% endblock %}
+
+
 
 
