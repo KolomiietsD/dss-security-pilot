@@ -2,7 +2,7 @@
 from django.shortcuts import render
 from django.http import JsonResponse
 
-from .crowdstrike_api import get_recent_devices, get_recent_events
+from .crowdstrike_api import get_recent_devices, get_recent_detects
 from .assets_unified import get_unified_assets
 
 def home(request):
@@ -33,12 +33,22 @@ def assets_data(request):
         return JsonResponse({"success": False, "error": str(e)}, status=500)
 
 
-def crowdstrike_events_data(request):
-    """
-    JSON-ендпоінт з подіями CrowdStrike.
-    """
+def crowdstrike_detects_data(request):
     try:
-        events = get_recent_events(limit=200)
-        return JsonResponse({"success": True, "events": events})
+        detects = get_recent_detects(limit=200)
+        return JsonResponse(
+            {
+                "success": True,
+                "detects": detects,
+            },
+            safe=False,
+        )
     except Exception as e:
-        return JsonResponse({"success": False, "error": str(e)}, status=500)
+        # Тут можна ще залогувати traceback у логах
+        return JsonResponse(
+            {
+                "success": False,
+                "error": str(e),
+            },
+            status=200,  # <-- щоб НЕ було HTTP 500, а помилка сходу пішла у фронтенд
+        )
