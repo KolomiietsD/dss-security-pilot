@@ -16,6 +16,8 @@ def home(request):
     """
     return render(request, "core/home.html")
 
+def perceptron_view(request):
+    return render(request, "core/perceptron.html")
 
 def about(request):
     """

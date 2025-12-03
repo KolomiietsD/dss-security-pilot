@@ -8,6 +8,7 @@ from django.urls import path
 
 from core.views import (
     home,
+    perceptron_view,
     about,
     crowdstrike_view,
     crowdstrike_data,
@@ -21,6 +22,8 @@ urlpatterns = [
 
     # Головна сторінка
     path("", home, name="home"),
+
+    path("perceptron/", perceptron_view, name="perceptron"),
 
     # Сторінка "Про систему"
     path("about/", about, name="about"),

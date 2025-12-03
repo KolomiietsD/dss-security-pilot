@@ -1,8 +1,100 @@
 {% extends "base.html" %}
 
-{% block title %}Про нас{% endblock %}
+{% block title %}About / Про систему{% endblock %}
 
 {% block content %}
-<h1>Про нас</h1>
-<p>Це інформаційна сторінка.</p>
+<div class="container mt-4">
+
+    <!-- Заголовок -->
+    <div class="mb-4">
+        <h1 class="mb-1">Про систему</h1>
+        <p class="text-muted mb-0">
+            Information Security DSS — навчальний проєкт для підтримки рішень у сфері кібербезпеки.
+        </p>
+    </div>
+
+    <!-- Огляд системи -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5 class="card-title mb-3">Що це за проєкт?</h5>
+            <p class="card-text">
+                Ця система розробляється як <strong>Decision Support System (DSS)</strong> для фахівців
+                з інформаційної безпеки. Вона допомагає аналізувати події безпеки, ризики та стан
+                інфраструктури, комбінуючи дані з різних джерел.
+            </p>
+            <p class="card-text mb-0">
+                Основна ідея — надати зручний інтерфейс, де можна побачити:
+                агреговану інформацію по хостах, детекти з CrowdStrike,
+                а в майбутньому — результати роботи моделей машинного навчання.
+            </p>
+        </div>
+    </div>
+
+    <!-- Блоки з основними компонентами -->
+    <div class="row g-4">
+
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h6 class="card-subtitle mb-2 text-muted">Модуль</h6>
+                    <h5 class="card-title">CrowdStrike</h5>
+                    <p class="card-text">
+                        Отримання інформації про хости, детекти та події безпеки
+                        з платформи CrowdStrike. Використовується як основне джерело
+                        технічних даних про інциденти.
+                    </p>
+                    <a href="{% url 'crowdstrike' %}" class="card-link">Перейти до хостів</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h6 class="card-subtitle mb-2 text-muted">Модуль</h6>
+                    <h5 class="card-title">Персептрон</h5>
+                    <p class="card-text">
+                        Експериментальний модуль з машинного навчання, який у майбутньому
+                        обчислюватиме <strong>коефіцієнт ризику</strong> для хостів та користувачів
+                        на основі історичних даних.
+                    </p>
+                    <a href="{% url 'perceptron' %}" class="card-link">Дивитись прототип</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h6 class="card-subtitle mb-2 text-muted">Фокус</h6>
+                    <h5 class="card-title">Підтримка рішень</h5>
+                    <p class="card-text">
+                        Система не замінює аналітика, а допомагає йому:
+                        швидше побачити критичні вузли, оцінити ризик та прийняти
+                        більш виважене рішення щодо реагування.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Про автора / мету -->
+    <div class="card mt-4">
+        <div class="card-body">
+            <h5 class="card-title mb-3">Мета розробки</h5>
+            <p class="card-text">
+                Проєкт створюється як частина навчальної / дослідницької роботи у сфері
+                <strong>інформаційної безпеки</strong> та <strong>data science</strong>.
+                Він демонструє, як поєднати дані з реальної системи захисту (CrowdStrike)
+                з аналітичними модулями та моделями машинного навчання.
+            </p>
+            <p class="card-text mb-0">
+                Подальші кроки включають розширення інтеграцій, покращення UX,
+                а також впровадження повноцінної моделі оцінки ризику.
+            </p>
+        </div>
+    </div>
+
+</div>
 {% endblock %}
