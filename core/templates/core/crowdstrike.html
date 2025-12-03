@@ -99,9 +99,13 @@
                 <th>Час</th>
                 <th>Hostname</th>
                 <th>Severity</th>
+                <th>Score</th>
                 <th>Тип</th>
-                <th>Опис</th>
+                <th>Продукт</th>
+                <th>Платформа</th>
+                <th>Мітки</th>
                 <th>Статус</th>
+                <th>Опис</th>
             </tr>
         </thead>
         <tbody id="detects-tbody">
@@ -256,7 +260,7 @@ document.addEventListener("DOMContentLoaded", function () {
         .catch(err => {
             loader.classList.add("d-none");
             errorBlock.textContent = "Помилка: " + err.message;
-            errorBlock.classList.remove("d-none");
+            errorBlock.classList.remove("д-none");
             noDataMsg.classList.remove("d-none");
         });
 
@@ -291,39 +295,101 @@ document.addEventListener("DOMContentLoaded", function () {
             }
 
             detects.sort((a, b) => {
-                const ta = new Date(a.timestamp).getTime() || 0;
-                const tb = new Date(b.timestamp).getTime() || 0;
+                const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+                const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
                 return tb - ta;
             });
 
             detects.forEach(ev => {
                 const tr = document.createElement("tr");
 
+                // службові ID для майбутнього (модалка / drill-down)
+                if (ev.detection_id) {
+                    tr.dataset.detectionId = ev.detection_id;
+                }
+                if (ev.device_id) {
+                    tr.dataset.deviceId = ev.device_id;
+                }
+
                 function td(v) {
                     const e = document.createElement("td");
-                    e.textContent = v || "";
+                    e.textContent = (v !== undefined && v !== null) ? v : "";
                     return e;
                 }
 
+                // Час
                 tr.appendChild(td(ev.timestamp));
+                // Hostname
                 tr.appendChild(td(ev.hostname));
 
+                // Severity з бейджем
                 const tdSev = document.createElement("td");
                 const sevSpan = document.createElement("span");
-                const sev = (ev.severity || "").toLowerCase();
+                const sevValue = ev.severity;
+                const sev = (typeof sevValue === "string"
+                    ? sevValue
+                    : String(sevValue || "")
+                ).toLowerCase();
 
-                if (sev === "critical") sevSpan.className = "badge text-bg-danger";
-                else if (sev === "high") sevSpan.className = "badge text-bg-warning";
-                else if (sev === "medium") sevSpan.className = "badge text-bg-info";
-                else sevSpan.className = "badge text-bg-secondary";
+                if (sev === "critical") {
+                    sevSpan.className = "badge text-bg-danger";
+                } else if (sev === "high") {
+                    sevSpan.className = "badge text-bg-warning";
+                } else if (sev === "medium") {
+                    sevSpan.className = "badge text-bg-info";
+                } else if (sev === "low") {
+                    sevSpan.className = "badge text-bg-secondary";
+                } else {
+                    sevSpan.className = "badge text-bg-light text-dark";
+                }
 
                 sevSpan.textContent = ev.severity || "—";
                 tdSev.appendChild(sevSpan);
                 tr.appendChild(tdSev);
 
+                // Score (severity_score)
+                tr.appendChild(td(ev.severity_score));
+
+                // Тип
                 tr.appendChild(td(ev.type));
-                tr.appendChild(td(ev.description));
+
+                // Продукт
+                tr.appendChild(td(ev.product));
+
+                // Платформа
+                tr.appendChild(td(ev.platform));
+
+                // Мітки
+                const flagsTd = document.createElement("td");
+                let hasFlag = false;
+
+                if (ev.is_lateral_movement) {
+                    const badgeLat = document.createElement("span");
+                    badgeLat.className = "badge rounded-pill text-bg-primary me-1";
+                    badgeLat.textContent = "Lateral";
+                    flagsTd.appendChild(badgeLat);
+                    hasFlag = true;
+                }
+
+                if (ev.is_ransomware_like) {
+                    const badgeRan = document.createElement("span");
+                    badgeRan.className = "badge rounded-pill text-bg-danger me-1";
+                    badgeRan.textContent = "Ransomware";
+                    flagsTd.appendChild(badgeRan);
+                    hasFlag = true;
+                }
+
+                if (!hasFlag) {
+                    flagsTd.textContent = "—";
+                }
+
+                tr.appendChild(flagsTd);
+
+                // Статус
                 tr.appendChild(td(ev.status));
+
+                // Опис
+                tr.appendChild(td(ev.description));
 
                 detectsTbody.appendChild(tr);
             });
@@ -339,6 +405,9 @@ document.addEventListener("DOMContentLoaded", function () {
 </script>
 
 {% endblock %}
+
+
+
 
 
 

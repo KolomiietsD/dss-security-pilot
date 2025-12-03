@@ -32,7 +32,9 @@ def get_recent_devices(limit: int = 100):
         status_code = response["status_code"]
         body = response["body"]
     except Exception:
-        raise RuntimeError(f"Несподіваний формат відповіді CrowdStrike: {type(response)}")
+        raise RuntimeError(
+            f"Несподіваний формат відповіді CrowdStrike: {type(response)}"
+        )
 
     if status_code != 200:
         errors = body.get("errors") or []
@@ -57,8 +59,11 @@ def get_recent_devices(limit: int = 100):
 
         if last_seen_raw:
             try:
-                last_seen_dt = datetime.fromisoformat(last_seen_raw.replace("Z", "+00:00"))
+                last_seen_dt = datetime.fromisoformat(
+                    last_seen_raw.replace("Z", "+00:00")
+                )
                 delta = now_utc - last_seen_dt
+                # якщо бачили за останню годину – вважаємо, що online
                 online_status = "online" if delta.total_seconds() <= 3600 else "offline"
             except Exception:
                 online_status = "unknown"
@@ -98,7 +103,9 @@ def get_recent_detects(limit: int = 200):
         status_code = query_resp["status_code"]
         body = query_resp["body"]
     except Exception:
-        raise RuntimeError(f"Несподіваний формат відповіді Alerts API: {repr(query_resp)}")
+        raise RuntimeError(
+            f"Несподіваний формат відповіді Alerts API: {repr(query_resp)}"
+        )
 
     if status_code != 200:
         errors = body.get("errors") or []
@@ -114,7 +121,7 @@ def get_recent_detects(limit: int = 200):
 
     alert_ids = alert_ids[:limit]
 
-    # 2. Тягнемо деталі: тут ВАЖЛИВО: composite_ids, а не ids
+    # 2. Деталі по composite_ids
     details_resp = falcon.get_alerts_v2(body={"composite_ids": alert_ids})
 
     try:
@@ -134,18 +141,20 @@ def get_recent_detects(limit: int = 200):
         raise RuntimeError(f"Alert details API error {det_status}: {msg}")
 
     resources = det_body.get("resources") or []
-    detects: list[dict] = []
+    detects = []
+
+    now_utc = datetime.now(timezone.utc)
 
     for alert in resources:
         device = alert.get("device") or {}
         hostname = device.get("hostname") or ""
 
-        # ----- Нормалізація severity -----
+        # ---------- Severity нормалізація ----------
         sev_raw = alert.get("severity") or alert.get("max_severity")
         sev_name = (
-                alert.get("severity_name")
-                or alert.get("severity_displayname")
-                or alert.get("severity_label")
+            alert.get("severity_name")
+            or alert.get("severity_displayname")
+            or alert.get("severity_label")
         )
 
         if isinstance(sev_name, str):
@@ -168,25 +177,141 @@ def get_recent_detects(limit: int = 200):
         if sev_str in ("info", "informational", ""):
             continue
 
+        # ---------- Продукт / платформа ----------
+        product = (
+            alert.get("product_name")
+            or alert.get("product")
+            or alert.get("source")
+        )
+
+        platform = (
+            device.get("platform_name")
+            or device.get("os_version")
+            or device.get("platform")
+        )
+
+        scenario_text = (
+            alert.get("scenario")
+            or alert.get("name")
+            or alert.get("display_name")
+            or "Alert"
+        )
+        scenario_lower = scenario_text.lower()
+
+        is_lateral_movement = "lateral" in scenario_lower
+        is_ransomware_like = "ransom" in scenario_lower
+
+        # ---------- Вік детекції в годинах ----------
+        created_ts = alert.get("created_timestamp")
+        age_hours = None
+        if created_ts:
+            try:
+                created_dt = datetime.fromisoformat(
+                    created_ts.replace("Z", "+00:00")
+                )
+                delta = now_utc - created_dt
+                age_hours = round(delta.total_seconds() / 3600, 2)
+            except Exception:
+                age_hours = None
+
+        # ---------- MITRE, процес, користувач, мережа ----------
+        behaviors = alert.get("behaviors") or []
+        primary_behavior = behaviors[0] if behaviors else {}
+
+        tactic = (
+            primary_behavior.get("tactic_display_name")
+            or primary_behavior.get("tactic")
+        )
+        technique_id = primary_behavior.get("technique_id")
+        technique = (
+            primary_behavior.get("technique_display_name")
+            or primary_behavior.get("technique")
+        )
+
+        # користувач
+        user_name = (
+            alert.get("user_name")
+            or alert.get("user")
+            or primary_behavior.get("user_name")
+        )
+
+        # процес
+        process_name = (
+            primary_behavior.get("filename")
+            or primary_behavior.get("image_file_name")
+            or primary_behavior.get("process")
+        )
+
+        # мережа (беремо перший запис, якщо є)
+        remote_ip = None
+        remote_port = None
+        net_details = alert.get("network_details") or alert.get("network") or []
+        if isinstance(net_details, dict):
+            net_details = [net_details]
+
+        if net_details:
+            # можна спробувати знайти egress, а якщо нема – перший
+            chosen = None
+            for nd in net_details:
+                if nd.get("direction") == "egress":
+                    chosen = nd
+                    break
+            if not chosen:
+                chosen = net_details[0]
+
+            remote_ip = (
+                chosen.get("remote_ip")
+                or chosen.get("remote_address")
+                or chosen.get("remote")
+            )
+            remote_port = (
+                chosen.get("remote_port")
+                or chosen.get("port")
+            )
+
         detects.append(
             {
+                # ID-шники
                 "event_id": alert.get("composite_id"),
+                "detection_id": alert.get("composite_id"),  # для фронту (data-detection-id)
                 "device_id": device.get("aid") or device.get("device_id"),
+
+                # базове
                 "hostname": hostname,
-                "timestamp": alert.get("created_timestamp"),
+                "timestamp": created_ts,
+
                 "severity": sev_str,
-                "type": (
-                        alert.get("scenario")
-                        or alert.get("name")
-                        or alert.get("display_name")
-                        or "Alert"
-                ),
+                "severity_score": sev_raw,
+
+                "type": scenario_text,
+                "product": product,
+                "platform": platform,
+
+                # MITRE / контекст атаки
+                "tactic": tactic,
+                "technique_id": technique_id,
+                "technique": technique,
+
+                # користувач / процес
+                "user_name": user_name,
+                "process_name": process_name,
+
+                # мережевий контекст
+                "remote_ip": remote_ip,
+                "remote_port": remote_port,
+
+                # прапорці для UI / моделі
+                "is_lateral_movement": is_lateral_movement,
+                "is_ransomware_like": is_ransomware_like,
+                "age_hours": age_hours,
+
+                # статус та опис
                 "status": alert.get("status"),
                 "description": (
-                        alert.get("description")
-                        or alert.get("title")
-                        or alert.get("summary")
-                        or ""
+                    alert.get("description")
+                    or alert.get("title")
+                    or alert.get("summary")
+                    or ""
                 ),
             }
         )
