@@ -35,7 +35,7 @@
     </p>
 </div>
 
-    <!-- Модальне вікно з інформацією про актив -->
+<!-- Модальне вікно з інформацією про актив -->
 <div class="modal fade" id="assetModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
@@ -63,6 +63,17 @@
           <dt class="col-4">Ризик</dt>
           <dd class="col-8" id="md-risk"></dd>
         </dl>
+
+        <hr class="my-2">
+
+        <div class="small">
+          <h6 class="mb-1">Детекти</h6>
+          <div id="md-detections-loading" class="text-muted d-none">
+            Завантаження детектів…
+          </div>
+          <div id="md-detections-error" class="text-danger d-none"></div>
+          <ul id="md-detections-list" class="list-unstyled mb-0"></ul>
+        </div>
       </div>
       <div class="modal-footer py-2">
         <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Закрити</button>
@@ -78,7 +89,7 @@ document.addEventListener("DOMContentLoaded", function () {
     const noDataMsg = document.getElementById("no-data-msg");
     const list = document.getElementById("assets-list");
 
-    // тут будемо тримати всі активи, щоб по кліку знайти потрібний
+    // тут будемо тримати всі активи, щоб по кліку знайти потрібний (якщо знадобиться)
     let assetsData = [];
 
     // якщо в urls.py є name='assets_data', можна так:
@@ -105,6 +116,83 @@ document.addEventListener("DOMContentLoaded", function () {
             riskText = (asset.risk_score * 100).toFixed(0) + " %";
         }
         document.getElementById("md-risk").textContent = riskText;
+
+        // ---------- детекти ----------
+        const detectionsList = document.getElementById("md-detections-list");
+        const detectionsLoading = document.getElementById("md-detections-loading");
+        const detectionsError = document.getElementById("md-detections-error");
+
+        // скидаємо попередній стан
+        detectionsList.innerHTML = "";
+        detectionsError.textContent = "";
+        detectionsError.classList.add("d-none");
+        detectionsLoading.classList.add("d-none");
+
+        if (!asset.hostname) {
+            detectionsList.innerHTML =
+                '<li class="text-muted">Немає hostname, щоб знайти детекти.</li>';
+        } else {
+            detectionsLoading.classList.remove("d-none");
+
+            const detUrl = `/assets/detections/?hostname=${encodeURIComponent(
+                asset.hostname
+            )}`;
+
+            fetch(detUrl)
+                .then((response) => {
+                    if (!response.ok) {
+                        throw new Error("HTTP " + response.status);
+                    }
+                    return response.json();
+                })
+                .then((data) => {
+                    detectionsLoading.classList.add("d-none");
+
+                    if (!data.success) {
+                        detectionsError.textContent =
+                            "Помилка при отриманні детектів: " +
+                            (data.error || "Невідома помилка");
+                        detectionsError.classList.remove("d-none");
+                        return;
+                    }
+
+                    const detections = data.detections || [];
+
+                    if (detections.length === 0) {
+                        detectionsList.innerHTML =
+                            '<li class="text-muted">Для цього хоста детектів не знайдено.</li>';
+                        return;
+                    }
+
+                    detections.forEach((d) => {
+                        const li = document.createElement("li");
+                        li.className = "mb-1";
+
+                        const sev = d.severity || "unknown";
+                        const tactic = d.tactic || "";
+                        const technique = d.technique || "";
+                        const time = d.start_time || d.timestamp || "";
+                        const status = d.status || "";
+
+                        li.innerHTML =
+                            `<strong>${sev}</strong>` +
+                            (status ? ` · <span>${status}</span>` : "") +
+                            (tactic || technique ? ` · ${tactic} ${technique}` : "") +
+                            (time
+                                ? `<br><span class="text-muted">${time}</span>`
+                                : "");
+
+                        detectionsList.appendChild(li);
+                    });
+                })
+                .catch((err) => {
+                    detectionsLoading.classList.add("d-none");
+                    detectionsError.textContent =
+                        "Помилка при завантаженні детектів: " + err.message;
+                    detectionsError.classList.remove("d-none");
+                });
+        }
+        // ---------- кінець блоку детектів ----------
 
         // показуємо Bootstrap-модалку
         const modalEl = document.getElementById("assetModal");
@@ -168,6 +256,6 @@ document.addEventListener("DOMContentLoaded", function () {
 });
 </script>
 
-
 {% endblock %}
+
 

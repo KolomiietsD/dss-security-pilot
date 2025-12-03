@@ -13,6 +13,7 @@ from core.views import (
     crowdstrike_data,
     assets_data,
     crowdstrike_detects_data,
+    asset_detections_data,
 )
 
 urlpatterns = [
@@ -39,4 +40,6 @@ urlpatterns = [
         crowdstrike_detects_data,
         name="crowdstrike_detects",
     ),
+
+    path("assets/detections/",asset_detections_data, name="asset_detections"),
 ]

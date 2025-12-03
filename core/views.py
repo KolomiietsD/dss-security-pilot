@@ -125,3 +125,70 @@ def crowdstrike_detects_data(request):
             status=200,  # щоб НЕ було HTTP 500, а помилка пішла у фронтенд
             json_dumps_params={"ensure_ascii": False},
         )
+
+
+def asset_detections_data(request):
+    """
+    Детекти (alerts) для конкретного активу за hostname.
+
+    Викликається фронтендом як:
+      /assets/detections/?hostname=HOSTNAME
+
+    Формат відповіді:
+    {
+        "success": true/false,
+        "detections": [...],
+        "error": "..."  # тільки при success=false
+    }
+
+    Тут ми поки що просто беремо останні детекти з get_recent_detects()
+    і фільтруємо їх по hostname у Python.
+    Якщо потім захочеш – винесемо це в окрему функцію в crowdstrike_api
+    з прямим фільтром у запиті до API.
+    """
+    hostname = request.GET.get("hostname")
+    if not hostname:
+        return JsonResponse(
+            {
+                "success": False,
+                "error": "Потрібен параметр hostname",
+            },
+            status=400,
+            json_dumps_params={"ensure_ascii": False},
+        )
+
+    try:
+        # Беремо останні детекти
+        all_detects = get_recent_detects(limit=200)
+
+        filtered = []
+        for d in all_detects or []:
+            # намагаємось дістати hostname з різних можливих полів
+            det_hostname = (
+                d.get("hostname")
+                or d.get("device_hostname")
+                or (d.get("device") or {}).get("hostname")
+            )
+
+            if det_hostname == hostname:
+                filtered.append(d)
+
+        return JsonResponse(
+            {
+                "success": True,
+                "detections": filtered,
+            },
+            json_dumps_params={"ensure_ascii": False},
+        )
+    except Exception as e:
+        logger.exception(
+            "Помилка при отриманні детекцій для активу з hostname=%s", hostname
+        )
+        return JsonResponse(
+            {
+                "success": False,
+                "error": str(e),
+            },
+            status=200,  # щоб фронт прочитав JSON і показав помилку в модалці
+            json_dumps_params={"ensure_ascii": False},
+        )
