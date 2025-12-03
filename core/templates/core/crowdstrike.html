@@ -78,6 +78,40 @@
     </p>
 </div>
 
+    <h2 class="h5 mt-4 mb-2">Останні події CrowdStrike</h2>
+
+<div id="events-loader" class="d-flex align-items-center mb-2">
+    <div class="spinner-border spinner-border-sm me-2" role="status">
+        <span class="visually-hidden">Loading...</span>
+    </div>
+    <span>Завантаження подій…</span>
+</div>
+
+<div id="events-error" class="alert alert-danger d-none"></div>
+
+<div class="table-responsive">
+    <table class="table table-sm table-hover align-middle">
+        <thead>
+            <tr>
+                <th>Час</th>
+                <th>Hostname</th>
+                <th>Severity</th>
+                <th>Тип</th>
+                <th>Опис</th>
+                <th>Статус</th>
+            </tr>
+        </thead>
+        <tbody id="events-tbody">
+            <!-- JS сюди додасть рядки -->
+        </tbody>
+    </table>
+</div>
+
+<p id="events-empty" class="text-muted d-none">
+    Поки що немає подій для відображення.
+</p>
+
+
 <!-- Chart.js з CDN -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
@@ -96,11 +130,12 @@ document.addEventListener("DOMContentLoaded", function () {
     let platformChart = null;
     let lastSeenChart = null;
 
-    // якщо у urls.py є name='crowdstrike_data', можна:
-    // const url = "{% url 'crowdstrike_data' %}";
-    const url = "/crowdstrike/data/";
+    // URL-и
+    const devicesUrl = "/crowdstrike/data/";
+    const eventsUrl = "/crowdstrike/events/";
 
-    fetch(url)
+    // ---------- Хости + графіки ----------
+    fetch(devicesUrl)
         .then(response => {
             if (!response.ok) {
                 throw new Error("HTTP " + response.status);
@@ -123,17 +158,8 @@ document.addEventListener("DOMContentLoaded", function () {
                 return;
             }
 
-            // Лічильники для графіка статусів
-            const statusCounts = {
-                online: 0,
-                offline: 0,
-                unknown: 0
-            };
-
-            // Лічильники платформ
+            const statusCounts = { online: 0, offline: 0, unknown: 0 };
             const platformCounts = {};
-
-            // Лічильники для "останнього зв'язку"
             const lastSeenBuckets = {
                 "≤ 24 год": 0,
                 "1–7 днів": 0,
@@ -142,7 +168,6 @@ document.addEventListener("DOMContentLoaded", function () {
 
             const now = new Date();
 
-            // Заповнюємо таблицю і рахуємо все для графіків
             devices.forEach((d, index) => {
                 const tr = document.createElement("tr");
 
@@ -152,13 +177,12 @@ document.addEventListener("DOMContentLoaded", function () {
                     return cell;
                 }
 
-                tr.appendChild(td(index + 1));                 // #
-                tr.appendChild(td(d.hostname));                // Hostname
-                tr.appendChild(td(d.platform_name));           // Платформа
-                tr.appendChild(td(d.local_ip));                // IP
-                tr.appendChild(td(d.last_seen));               // Last seen
+                tr.appendChild(td(index + 1));
+                tr.appendChild(td(d.hostname));
+                tr.appendChild(td(d.platform_name));
+                tr.appendChild(td(d.local_ip));
+                tr.appendChild(td(d.last_seen));
 
-                // Онлайн-статус
                 const tdStatus = document.createElement("td");
                 const span = document.createElement("span");
                 const st = d.online_status;
@@ -179,17 +203,14 @@ document.addEventListener("DOMContentLoaded", function () {
 
                 tdStatus.appendChild(span);
                 tr.appendChild(tdStatus);
-
                 tbody.appendChild(tr);
 
-                // Платформи
                 const platformName = d.platform_name || "Unknown";
                 if (!platformCounts[platformName]) {
                     platformCounts[platformName] = 0;
                 }
                 platformCounts[platformName] += 1;
 
-                // Давність останнього зв'язку
                 if (d.last_seen) {
                     const lastSeenDate = new Date(d.last_seen);
                     if (!isNaN(lastSeenDate.getTime())) {
@@ -204,20 +225,16 @@ document.addEventListener("DOMContentLoaded", function () {
                             lastSeenBuckets["> 7 днів"] += 1;
                         }
                     } else {
-                        // якщо формат дати кривий — можна ігнорити або віднести до "> 7 днів"
                         lastSeenBuckets["> 7 днів"] += 1;
                     }
                 } else {
-                    // якщо last_seen немає — також можна вважати "старим"
                     lastSeenBuckets["> 7 днів"] += 1;
                 }
             });
 
-            // -------- Графік статусів (doughnut) --------
+            // Графік статусів
             const ctxStatus = statusChartCanvas.getContext("2d");
-
             if (statusChart) statusChart.destroy();
-
             statusChart = new Chart(ctxStatus, {
                 type: "doughnut",
                 data: {
@@ -234,42 +251,29 @@ document.addEventListener("DOMContentLoaded", function () {
                     responsive: true,
                     maintainAspectRatio: false,
                     plugins: {
-                        legend: {
-                            position: "bottom"
-                        },
-                        title: {
-                            display: false
-                        }
+                        legend: { position: "bottom" },
+                        title: { display: false }
                     }
                 }
             });
 
-            // -------- Графік платформ (bar) --------
+            // Графік платформ
             const platforms = Object.keys(platformCounts);
             const platformValues = platforms.map(p => platformCounts[p]);
-
             const ctxPlatform = platformChartCanvas.getContext("2d");
-
             if (platformChart) platformChart.destroy();
-
             platformChart = new Chart(ctxPlatform, {
                 type: "bar",
                 data: {
                     labels: platforms,
-                    datasets: [{
-                        data: platformValues
-                    }]
+                    datasets: [{ data: platformValues }]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
                     plugins: {
-                        legend: {
-                            display: false
-                        },
-                        title: {
-                            display: false
-                        }
+                        legend: { display: false },
+                        title: { display: false }
                     },
                     scales: {
                         x: {
@@ -281,47 +285,34 @@ document.addEventListener("DOMContentLoaded", function () {
                         },
                         y: {
                             beginAtZero: true,
-                            ticks: {
-                                precision: 0
-                            }
+                            ticks: { precision: 0 }
                         }
                     }
                 }
             });
 
-            // -------- Графік "останній зв'язок" (bar) --------
+            // Графік "останній зв'язок"
             const lastSeenLabels = Object.keys(lastSeenBuckets);
             const lastSeenValues = lastSeenLabels.map(k => lastSeenBuckets[k]);
-
             const ctxLastSeen = lastSeenChartCanvas.getContext("2d");
-
             if (lastSeenChart) lastSeenChart.destroy();
-
             lastSeenChart = new Chart(ctxLastSeen, {
                 type: "bar",
                 data: {
                     labels: lastSeenLabels,
-                    datasets: [{
-                        data: lastSeenValues
-                    }]
+                    datasets: [{ data: lastSeenValues }]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
                     plugins: {
-                        legend: {
-                            display: false
-                        },
-                        title: {
-                            display: false
-                        }
+                        legend: { display: false },
+                        title: { display: false }
                     },
                     scales: {
                         y: {
                             beginAtZero: true,
-                            ticks: {
-                                precision: 0
-                            }
+                            ticks: { precision: 0 }
                         }
                     }
                 }
@@ -334,8 +325,89 @@ document.addEventListener("DOMContentLoaded", function () {
             errorBlock.classList.remove("d-none");
             noDataMsg.classList.remove("d-none");
         });
+
+    // =============== Події CrowdStrike ===============
+    const eventsLoader = document.getElementById("events-loader");
+    const eventsError = document.getElementById("events-error");
+    const eventsTbody = document.getElementById("events-tbody");
+    const eventsEmpty = document.getElementById("events-empty");
+
+    fetch(eventsUrl)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error("HTTP " + response.status);
+            }
+            return response.json();
+        })
+        .then(data => {
+            eventsLoader.classList.add("d-none");
+
+            if (!data.success) {
+                eventsError.textContent = "Помилка при отриманні подій: " + (data.error || "Невідома помилка");
+                eventsError.classList.remove("d-none");
+                eventsEmpty.classList.remove("d-none");
+                return;
+            }
+
+            const events = data.events || [];
+            if (events.length === 0) {
+                eventsEmpty.classList.remove("d-none");
+                return;
+            }
+
+            // Нехай найсвіжіші будуть зверху (якщо вже відсортовано на бекенді — можна пропустити)
+            events.sort((a, b) => {
+                const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+                const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+                return tb - ta;
+            });
+
+            events.forEach(ev => {
+                const tr = document.createElement("tr");
+
+                function td(text) {
+                    const cell = document.createElement("td");
+                    cell.textContent = text || "";
+                    return cell;
+                }
+
+                tr.appendChild(td(ev.timestamp));             // Час
+                tr.appendChild(td(ev.hostname));              // Hostname
+
+                // Severity з бейджем
+                const sevTd = document.createElement("td");
+                const sevSpan = document.createElement("span");
+                const sev = (ev.severity || "").toLowerCase();
+
+                if (sev === "critical") {
+                    sevSpan.className = "badge text-bg-danger";
+                } else if (sev === "high") {
+                    sevSpan.className = "badge text-bg-warning";
+                } else if (sev === "medium") {
+                    sevSpan.className = "badge text-bg-info";
+                } else {
+                    sevSpan.className = "badge text-bg-secondary";
+                }
+                sevSpan.textContent = ev.severity || "—";
+                sevTd.appendChild(sevSpan);
+                tr.appendChild(sevTd);
+
+                tr.appendChild(td(ev.type));                  // Тип
+                tr.appendChild(td(ev.description));           // Опис
+                tr.appendChild(td(ev.status));                // Статус
+
+                eventsTbody.appendChild(tr);
+            });
+        })
+        .catch(error => {
+            eventsLoader.classList.add("d-none");
+            eventsError.textContent = "Помилка при завантаженні подій: " + error.message;
+            eventsError.classList.remove("d-none");
+            eventsEmpty.classList.remove("d-none");
+        });
 });
 </script>
+
 {% endblock %}
 
 

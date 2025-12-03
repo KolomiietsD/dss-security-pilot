@@ -2,7 +2,7 @@
 import os
 from datetime import datetime, timezone
 
-from falconpy import Hosts
+from falconpy import Hosts, Detects
 
 
 def _get_cs_credentials():
@@ -82,3 +82,18 @@ def get_recent_devices(limit: int = 100):
         )
 
     return devices
+
+def get_recent_events(limit=200):
+    return [
+        {
+            "event_id": "test-1",
+            "device_id": "dev-123",
+            "hostname": "test-host",
+            "timestamp": "2025-12-01T10:15:00Z",
+            "severity": "high",
+            "type": "Test event",
+            "status": "new",
+            "description": "Це тестова подія, щоб перевірити фронтенд",
+        }
+    ]
+

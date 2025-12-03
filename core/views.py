@@ -2,7 +2,7 @@
 from django.shortcuts import render
 from django.http import JsonResponse
 
-from .crowdstrike_api import get_recent_devices
+from .crowdstrike_api import get_recent_devices, get_recent_events
 from .assets_unified import get_unified_assets
 
 def home(request):
@@ -32,3 +32,13 @@ def assets_data(request):
     except Exception as e:
         return JsonResponse({"success": False, "error": str(e)}, status=500)
 
+
+def crowdstrike_events_data(request):
+    """
+    JSON-ендпоінт з подіями CrowdStrike.
+    """
+    try:
+        events = get_recent_events(limit=200)
+        return JsonResponse({"success": True, "events": events})
+    except Exception as e:
+        return JsonResponse({"success": False, "error": str(e)}, status=500)
