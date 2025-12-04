@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block title %}Wazuh{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1 class="mb-3">Wazuh</h1>
+    <p class="text-muted mb-4">
+        Ця сторінка буде відображати дані з Wazuh (агенти, алерти, інциденти) 
+        та стане ще одним джерелом інформації поруч із CrowdStrike.
+    </p>
+
+    <!-- Блок статусу підключення -->
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="card border-0 shadow-sm">
+                <div class="card-header py-2">
+                    <strong>Статус інтеграції</strong>
+                </div>
+                <div class="card-body">
+                    {% if wazuh_connected %}
+                        <span class="badge bg-success">Підключено</span>
+                        <p class="mt-2 mb-0">
+                            З’єднання з Wazuh встановлено, можна отримувати дані.
+                        </p>
+                    {% else %}
+                        <span class="badge bg-secondary">Поки не підключено</span>
+                        <p class="mt-2 mb-0">
+                            Інтеграція з Wazuh ще не налаштована. 
+                            Після налаштування API тут з’являться реальні метрики.
+                        </p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- План інтеграції / опис -->
+        <div class="col-md-6 mt-3 mt-md-0">
+            <div class="card border-0 shadow-sm">
+                <div class="card-header py-2">
+                    <strong>Що тут буде</strong>
+                </div>
+                <div class="card-body">
+                    <ul class="mb-0">
+                        <li>Список агентів Wazuh та їх статус.</li>
+                        <li>Останні безпекові алерти з Wazuh.</li>
+                        <li>Зв’язка хостів Wazuh з хостами CrowdStrike.</li>
+                        <li>Перехід до детальної інформації по інциденту.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Місце для майбутніх таблиць/графіків -->
+    <div class="card border-0 shadow-sm">
+        <div class="card-header py-2">
+            <strong>Дані Wazuh</strong>
+        </div>
+        <div class="card-body">
+            <p class="mb-2">
+                Тут з’являться:
+            </p>
+            <ul class="mb-3">
+                <li>Таблиця агентів (hostname, IP, статус, ОС, останній ping).</li>
+                <li>Останні алерти (severity, правило, агент, час).</li>
+            </ul>
+            <p class="text-muted mb-0">
+                Поки Wazuh тільки розгортається – це заглушка. 
+                Коли буде готовий доступ по API, ми підтягнемо сюди реальні дані.
+            </p>
+        </div>
+    </div>
+</div>
+{% endblock %}

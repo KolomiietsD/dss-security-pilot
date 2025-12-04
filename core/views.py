@@ -32,6 +32,14 @@ def crowdstrike_view(request):
     """
     return render(request, "core/crowdstrike.html")
 
+def wazuh_view(request):
+    # Поки що без реального підключення, просто заготовка
+    context = {
+        "page_title": "Wazuh інтеграція",
+        # Сюди пізніше додамо реальні дані з Wazuh API
+        "wazuh_connected": False,
+    }
+    return render(request, "core/wazuh.html", context)
 
 def crowdstrike_data(request):
     """
