@@ -33,6 +33,7 @@
     <!-- Блоки з основними компонентами -->
     <div class="row g-4">
 
+        <!-- CrowdStrike -->
         <div class="col-md-4">
             <div class="card h-100">
                 <div class="card-body">
@@ -48,6 +49,23 @@
             </div>
         </div>
 
+        <!-- Wazuh -->
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h6 class="card-subtitle mb-2 text-muted">Модуль</h6>
+                    <h5 class="card-title">Wazuh (SIEM / XDR)</h5>
+                    <p class="card-text">
+                        Інтеграція з Wazuh для збору логів, подій безпеки та стану агентів.
+                        Доповнює дані CrowdStrike контекстом із хостів і лог-платформи,
+                        дозволяючи краще бачити картину інцидентів.
+                    </p>
+                    <a href="{% url 'wazuh' %}" class="card-link">Перейти до Wazuh</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Персептрон -->
         <div class="col-md-4">
             <div class="card h-100">
                 <div class="card-body">
@@ -63,6 +81,7 @@
             </div>
         </div>
 
+        <!-- Підтримка рішень -->
         <div class="col-md-4">
             <div class="card h-100">
                 <div class="card-body">

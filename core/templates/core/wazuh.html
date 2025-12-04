@@ -6,8 +6,8 @@
 <div class="container mt-4">
     <h1 class="mb-3">Wazuh</h1>
     <p class="text-muted mb-4">
-        Ця сторінка буде відображати дані з Wazuh (агенти, алерти, інциденти) 
-        та стане ще одним джерелом інформації поруч із CrowdStrike.
+        Ця сторінка відображає дані з Wazuh (агенти, алерти, інциденти)
+        та є ще одним джерелом інформації поруч із CrowdStrike.
     </p>
 
     <!-- Блок статусу підключення -->
@@ -21,13 +21,12 @@
                     {% if wazuh_connected %}
                         <span class="badge bg-success">Підключено</span>
                         <p class="mt-2 mb-0">
-                            З’єднання з Wazuh встановлено, можна отримувати дані.
+                            З’єднання з Wazuh встановлено, дані отримані успішно.
                         </p>
                     {% else %}
                         <span class="badge bg-secondary">Поки не підключено</span>
                         <p class="mt-2 mb-0">
-                            Інтеграція з Wazuh ще не налаштована. 
-                            Після налаштування API тут з’являться реальні метрики.
+                            Інтеграція з Wazuh ще не налаштована або API недоступний.
                         </p>
                     {% endif %}
                 </div>
@@ -52,23 +51,76 @@
         </div>
     </div>
 
-    <!-- Місце для майбутніх таблиць/графіків -->
+    <!-- Дані Wazuh -->
     <div class="card border-0 shadow-sm">
-        <div class="card-header py-2">
-            <strong>Дані Wazuh</strong>
+        <div class="card-header py-2 d-flex justify-content-between align-items-center">
+            <strong>Агенти Wazuh</strong>
+            {% if wazuh_connected %}
+                <span class="badge bg-success">API онлайн</span>
+            {% else %}
+                <span class="badge bg-danger">API недоступний</span>
+            {% endif %}
         </div>
         <div class="card-body">
-            <p class="mb-2">
-                Тут з’являться:
-            </p>
-            <ul class="mb-3">
-                <li>Таблиця агентів (hostname, IP, статус, ОС, останній ping).</li>
-                <li>Останні алерти (severity, правило, агент, час).</li>
-            </ul>
-            <p class="text-muted mb-0">
-                Поки Wazuh тільки розгортається – це заглушка. 
-                Коли буде готовий доступ по API, ми підтягнемо сюди реальні дані.
-            </p>
+
+            {# Якщо є помилка з API – покажемо її #}
+            {% if wazuh_error %}
+                <div class="alert alert-danger">
+                    {{ wazuh_error }}
+                </div>
+            {% endif %}
+
+            {% if wazuh_agents %}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Hostname</th>
+                                <th>IP</th>
+                                <th>OS</th>
+                                <th>Status</th>
+                                <th>Last keepalive</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for agent in wazuh_agents %}
+                                <tr>
+                                    <td>{{ agent.id }}</td>
+                                    <td>{{ agent.name }}</td>
+                                    <td>{{ agent.ip|default:"-" }}</td>
+                                    <td>
+                                        {{ agent.os.name|default:"" }}
+                                        {% if agent.os.version %}
+                                            ({{ agent.os.version }})
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if agent.status == "active" %}
+                                            <span class="badge bg-success">active</span>
+                                        {% elif agent.status == "disconnected" %}
+                                            <span class="badge bg-warning text-dark">disconnected</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">{{ agent.status }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ agent.last_keepalive|default:"-" }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                {% if wazuh_connected and not wazuh_error %}
+                    <p class="mb-0 text-muted">
+                        Дані з Wazuh отримано, але список агентів порожній.
+                    </p>
+                {% else %}
+                    <p class="mb-0 text-muted">
+                        Дані з Wazuh наразі недоступні.
+                    </p>
+                {% endif %}
+            {% endif %}
         </div>
     </div>
 </div>

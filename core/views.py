@@ -3,6 +3,7 @@ from django.shortcuts import render
 from django.http import JsonResponse
 
 from .crowdstrike_api import get_recent_devices, get_recent_detects
+from .wazuh_api import get_agents, WazuhAPIError
 from .assets_unified import get_unified_assets
 
 import logging
@@ -33,11 +34,24 @@ def crowdstrike_view(request):
     return render(request, "core/crowdstrike.html")
 
 def wazuh_view(request):
-    # Поки що без реального підключення, просто заготовка
+    agents = []
+    error_message = None
+    wazuh_connected = False
+
+    try:
+        agents = get_agents(limit=100)
+        wazuh_connected = True
+    except WazuhAPIError as exc:
+        error_message = str(exc)
+    except RuntimeError as exc:
+        # якщо нема змінних середовища
+        error_message = str(exc)
+
     context = {
         "page_title": "Wazuh інтеграція",
-        # Сюди пізніше додамо реальні дані з Wazuh API
-        "wazuh_connected": False,
+        "wazuh_connected": wazuh_connected,
+        "wazuh_agents": agents,
+        "wazuh_error": error_message,
     }
     return render(request, "core/wazuh.html", context)
 
