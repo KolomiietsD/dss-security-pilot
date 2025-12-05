@@ -16,6 +16,9 @@ from core.views import (
     crowdstrike_detects_data,
     asset_detections_data,
     wazuh_view,
+    wazuh_hosts_data,
+    wazuh_events_data,
+
 )
 
 urlpatterns = [
@@ -31,6 +34,9 @@ urlpatterns = [
 
     # нова сторінка Wazuh
     path("wazuh/", wazuh_view, name="wazuh"),
+
+    path("wazuh/hosts/", wazuh_hosts_data, name="wazuh_hosts_data"),
+    path("wazuh/events/", wazuh_events_data, name="wazuh_events_data"),
 
     # Дашборд CrowdStrike (HTML)
     path("crowdstrike/", crowdstrike_view, name="crowdstrike"),

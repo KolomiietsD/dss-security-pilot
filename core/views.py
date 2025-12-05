@@ -324,3 +324,78 @@ def asset_detections_data(request):
             status=200,  # щоб фронт прочитав JSON і показав помилку в модалці
             json_dumps_params={"ensure_ascii": False},
         )
+
+
+def wazuh_hosts_data(request):
+    """
+    JSON з хостами/агентами Wazuh для /wazuh/hosts/
+
+    Формат відповіді:
+    {
+        "success": true/false,
+        "hosts": [...],
+        "agents": [...],  # дублюємо для зручності
+        "error": "..."    # тільки при success=false
+    }
+    """
+    try:
+        agents = get_agents(limit=500) or []
+        return JsonResponse(
+            {
+                "success": True,
+                "hosts": agents,
+                "agents": agents,
+            },
+            json_dumps_params={"ensure_ascii": False},
+        )
+    except (WazuhAPIError, RuntimeError) as e:
+        logger.exception("Помилка при отриманні хостів/агентів Wazuh")
+        return JsonResponse(
+            {
+                "success": False,
+                "error": str(e),
+            },
+            status=200,
+            json_dumps_params={"ensure_ascii": False},
+        )
+
+
+def wazuh_events_data(request):
+    """
+    JSON з подіями Wazuh для /wazuh/events/
+
+    Зараз просто повертаємо суму alerts + siem events.
+
+    Формат відповіді:
+    {
+        "success": true/false,
+        "events": [...],        # об'єднаний список
+        "alerts": [...],        # сирі alerts
+        "siem_events": [...],   # сирі siem-івенти
+        "error": "..."          # тільки при success=false
+    }
+    """
+    try:
+        alerts = get_recent_alerts(limit=200) or []
+        siem_events = get_recent_siem_events(limit=200) or []
+        events = alerts + siem_events
+
+        return JsonResponse(
+            {
+                "success": True,
+                "events": events,
+                "alerts": alerts,
+                "siem_events": siem_events,
+            },
+            json_dumps_params={"ensure_ascii": False},
+        )
+    except (WazuhAPIError, RuntimeError) as e:
+        logger.exception("Помилка при отриманні подій Wazuh")
+        return JsonResponse(
+            {
+                "success": False,
+                "error": str(e),
+            },
+            status=200,
+            json_dumps_params={"ensure_ascii": False},
+        )
