@@ -3,12 +3,30 @@ from django.shortcuts import render
 from django.http import JsonResponse
 
 from .crowdstrike_api import get_recent_devices, get_recent_detects
-from .wazuh_api import get_agents, WazuhAPIError
+from .wazuh_api import get_agents, WazuhAPIError, get_recent_alerts, get_recent_siem_events
+
 from .assets_unified import get_unified_assets
 
+from datetime import datetime, timezone
+import json
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_iso_dt(value):
+    """
+    Допоміжна функція: перетворює ISO-дату з Wazuh у datetime або None.
+    Очікує формат типу '2025-12-04T13:42:14Z'.
+    """
+    if not value:
+        return None
+    try:
+        if isinstance(value, str) and value.endswith("Z"):
+            value = value.replace("Z", "+00:00")
+        return datetime.fromisoformat(value)
+    except Exception:
+        return None
 
 
 def home(request):
@@ -17,8 +35,10 @@ def home(request):
     """
     return render(request, "core/home.html")
 
+
 def perceptron_view(request):
     return render(request, "core/perceptron.html")
+
 
 def about(request):
     """
@@ -33,27 +53,115 @@ def crowdstrike_view(request):
     """
     return render(request, "core/crowdstrike.html")
 
+
 def wazuh_view(request):
-    agents = []
-    error_message = None
+    """
+    Дашборд Wazuh: інфографіка + таблиця агентів + останні детекти / SIEM-івенти.
+    """
+    agents: list[dict] = []
+    error_message: str | None = None
     wazuh_connected = False
 
+    wazuh_alerts: list[dict] = []
+    wazuh_events: list[dict] = []
+
+    # Лічильники для графіків
+    status_counts = {
+        "active": 0,
+        "disconnected": 0,
+        "never_connected": 0,
+        "unknown": 0,
+    }
+    os_counts: dict[str, int] = {}
+    last_seen_buckets = {
+        "lt_24h": 0,
+        "d1_7": 0,
+        "gt_7": 0,
+        "unknown": 0,
+    }
+
     try:
-        agents = get_agents(limit=100)
+        # 1. Агенти
+        agents = get_agents(limit=500)
         wazuh_connected = True
-    except WazuhAPIError as exc:
+
+        now = datetime.now(timezone.utc)
+
+        for a in agents:
+            # --- Статус ---
+            status = (a.get("status") or "").lower()
+            if status not in status_counts:
+                status = "unknown"
+            status_counts[status] += 1
+
+            # --- ОС ---
+            os_info = a.get("os") or {}
+            os_name = os_info.get("name") or "Unknown"
+            os_counts[os_name] = os_counts.get(os_name, 0) + 1
+
+            # --- Останній keepalive ---
+            last_keepalive = _parse_iso_dt(a.get("last_keepalive"))
+            if not last_keepalive:
+                last_seen_buckets["unknown"] += 1
+            else:
+                delta = now - last_keepalive
+                days = delta.total_seconds() / 86400.0
+                if days <= 1:
+                    last_seen_buckets["lt_24h"] += 1
+                elif days <= 7:
+                    last_seen_buckets["d1_7"] += 1
+                else:
+                    last_seen_buckets["gt_7"] += 1
+
+        # 2. Останні детекти / івенти з Indexer (якщо він налаштований)
+        try:
+            wazuh_alerts = get_recent_alerts(limit=50) or []
+            wazuh_events = get_recent_siem_events(limit=50) or []
+        except (WazuhAPIError, RuntimeError) as exc:
+            # не валимо сторінку, просто лог
+            logger.warning("Не вдалося отримати alerts/events з Wazuh Indexer: %s", exc)
+
+    except (WazuhAPIError, RuntimeError) as exc:
         error_message = str(exc)
-    except RuntimeError as exc:
-        # якщо нема змінних середовища
-        error_message = str(exc)
+
+    # Дані для графіків (аналогічно CrowdStrike-дашборду)
+    charts = {
+        "status": {
+            "labels": ["Active", "Disconnected", "Never connected", "Unknown"],
+            "data": [
+                status_counts["active"],
+                status_counts["disconnected"],
+                status_counts["never_connected"],
+                status_counts["unknown"],
+            ],
+        },
+        "platforms": {
+            "labels": list(os_counts.keys()),
+            "data": list(os_counts.values()),
+        },
+        # last_seen зараз у шаблоні не використовується, але залишимо про запас
+        "last_seen": {
+            "labels": ["≤ 24 год", "1–7 днів", "> 7 днів", "Невідомо"],
+            "data": [
+                last_seen_buckets["lt_24h"],
+                last_seen_buckets["d1_7"],
+                last_seen_buckets["gt_7"],
+                last_seen_buckets["unknown"],
+            ],
+        },
+    }
 
     context = {
         "page_title": "Wazuh інтеграція",
         "wazuh_connected": wazuh_connected,
         "wazuh_agents": agents,
         "wazuh_error": error_message,
+        "wazuh_charts_json": json.dumps(charts),
+        "wazuh_alerts": wazuh_alerts,
+        "wazuh_events": wazuh_events,
     }
     return render(request, "core/wazuh.html", context)
+
 
 def crowdstrike_data(request):
     """

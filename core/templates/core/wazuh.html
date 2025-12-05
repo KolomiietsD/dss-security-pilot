@@ -4,57 +4,52 @@
 
 {% block content %}
 <div class="container mt-4">
-    <h1 class="mb-3">Wazuh</h1>
-    <p class="text-muted mb-4">
-        Ця сторінка відображає дані з Wazuh (агенти, алерти, інциденти)
-        та є ще одним джерелом інформації поруч із CrowdStrike.
-    </p>
+    <h1 class="mb-3">Wazuh – агенти</h1>
 
-    <!-- Блок статусу підключення -->
-    <div class="row mb-4">
+    {# Статус інтеграції / помилки #}
+    {% if wazuh_error %}
+        <div class="alert alert-danger">
+            {{ wazuh_error }}
+        </div>
+    {% endif %}
+
+    <!-- Інфографіка -->
+    <div class="row mb-4 g-3">
+        <!-- Статус агентів -->
         <div class="col-md-6">
-            <div class="card border-0 shadow-sm">
+            <div class="card h-100">
                 <div class="card-header py-2">
-                    <strong>Статус інтеграції</strong>
+                    <strong>Статус агентів</strong>
                 </div>
                 <div class="card-body">
-                    {% if wazuh_connected %}
-                        <span class="badge bg-success">Підключено</span>
-                        <p class="mt-2 mb-0">
-                            З’єднання з Wazuh встановлено, дані отримані успішно.
-                        </p>
-                    {% else %}
-                        <span class="badge bg-secondary">Поки не підключено</span>
-                        <p class="mt-2 mb-0">
-                            Інтеграція з Wazuh ще не налаштована або API недоступний.
-                        </p>
-                    {% endif %}
+                    <canvas id="wazuh-status-chart"></canvas>
+                    <div class="mt-2 small text-muted">
+                        Показує співвідношення активних / відключених агентів.
+                    </div>
                 </div>
             </div>
         </div>
 
-        <!-- План інтеграції / опис -->
-        <div class="col-md-6 mt-3 mt-md-0">
-            <div class="card border-0 shadow-sm">
+        <!-- Платформи агентів -->
+        <div class="col-md-6">
+            <div class="card h-100">
                 <div class="card-header py-2">
-                    <strong>Що тут буде</strong>
+                    <strong>Платформи агентів</strong>
                 </div>
                 <div class="card-body">
-                    <ul class="mb-0">
-                        <li>Список агентів Wazuh та їх статус.</li>
-                        <li>Останні безпекові алерти з Wazuh.</li>
-                        <li>Зв’язка хостів Wazuh з хостами CrowdStrike.</li>
-                        <li>Перехід до детальної інформації по інциденту.</li>
-                    </ul>
+                    <canvas id="wazuh-platforms-chart"></canvas>
+                    <div class="mt-2 small text-muted">
+                        Розподіл агентів за операційними системами.
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Дані Wazuh -->
-    <div class="card border-0 shadow-sm">
+    <!-- Таблиця агентів -->
+    <div class="card border-0 shadow-sm mb-4">
         <div class="card-header py-2 d-flex justify-content-between align-items-center">
-            <strong>Агенти Wazuh</strong>
+            <strong>Список агентів</strong>
             {% if wazuh_connected %}
                 <span class="badge bg-success">API онлайн</span>
             {% else %}
@@ -62,19 +57,12 @@
             {% endif %}
         </div>
         <div class="card-body">
-
-            {# Якщо є помилка з API – покажемо її #}
-            {% if wazuh_error %}
-                <div class="alert alert-danger">
-                    {{ wazuh_error }}
-                </div>
-            {% endif %}
-
             {% if wazuh_agents %}
                 <div class="table-responsive">
                     <table class="table table-sm align-middle">
                         <thead>
                             <tr>
+                                <th>#</th>
                                 <th>ID</th>
                                 <th>Hostname</th>
                                 <th>IP</th>
@@ -86,13 +74,18 @@
                         <tbody>
                             {% for agent in wazuh_agents %}
                                 <tr>
+                                    <td>{{ forloop.counter }}</td>
                                     <td>{{ agent.id }}</td>
                                     <td>{{ agent.name }}</td>
                                     <td>{{ agent.ip|default:"-" }}</td>
                                     <td>
-                                        {{ agent.os.name|default:"" }}
-                                        {% if agent.os.version %}
-                                            ({{ agent.os.version }})
+                                        {% if agent.os %}
+                                            {{ agent.os.name|default:"" }}
+                                            {% if agent.os.version %}
+                                                ({{ agent.os.version }})
+                                            {% endif %}
+                                        {% else %}
+                                            -
                                         {% endif %}
                                     </td>
                                     <td>
@@ -100,8 +93,10 @@
                                             <span class="badge bg-success">active</span>
                                         {% elif agent.status == "disconnected" %}
                                             <span class="badge bg-warning text-dark">disconnected</span>
+                                        {% elif agent.status == "never_connected" %}
+                                            <span class="badge bg-secondary">never connected</span>
                                         {% else %}
-                                            <span class="badge bg-secondary">{{ agent.status }}</span>
+                                            <span class="badge bg-light text-dark">{{ agent.status }}</span>
                                         {% endif %}
                                     </td>
                                     <td>{{ agent.last_keepalive|default:"-" }}</td>
@@ -111,17 +106,172 @@
                     </table>
                 </div>
             {% else %}
-                {% if wazuh_connected and not wazuh_error %}
-                    <p class="mb-0 text-muted">
-                        Дані з Wazuh отримано, але список агентів порожній.
-                    </p>
-                {% else %}
-                    <p class="mb-0 text-muted">
-                        Дані з Wazuh наразі недоступні.
-                    </p>
-                {% endif %}
+                <p class="mb-0 text-muted">
+                    Дані по агентах Wazuh наразі відсутні.
+                </p>
             {% endif %}
         </div>
     </div>
+
+    {# Останні детекти Wazuh #}
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header py-2 d-flex justify-content-between align-items-center">
+            <strong>Останні детекти Wazuh</strong>
+            {% if wazuh_alerts %}
+                <span class="badge bg-primary">
+                    {{ wazuh_alerts|length }} подій
+                </span>
+            {% endif %}
+        </div>
+        <div class="card-body">
+            {% if wazuh_alerts %}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Час</th>
+                                <th>Агент</th>
+                                <th>Правило</th>
+                                <th>Рівень</th>
+                                <th>Категорія</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for alert in wazuh_alerts %}
+                                <tr>
+                                    <td>{{ forloop.counter }}</td>
+                                    <td>
+                                        {{ alert.timestamp|default:"-" }}
+                                    </td>
+                                    <td>
+                                        {% if alert.agent %}
+                                            {{ alert.agent.name|default:"-" }}
+                                            {% if alert.agent.id %}
+                                                <span class="text-muted small"> (id: {{ alert.agent.id }})</span>
+                                            {% endif %}
+                                        {% else %}
+                                            -
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if alert.rule %}
+                                            {{ alert.rule.description|default:"-" }}
+                                            {% if alert.rule.id %}
+                                                <span class="text-muted small"> [{{ alert.rule.id }}]</span>
+                                            {% endif %}
+                                        {% else %}
+                                            -
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% with lvl=alert.rule.level %}
+                                            {% if lvl >= 10 %}
+                                                <span class="badge bg-danger">level {{ lvl }}</span>
+                                            {% elif lvl >= 7 %}
+                                                <span class="badge bg-warning text-dark">level {{ lvl }}</span>
+                                            {% elif lvl %}
+                                                <span class="badge bg-success">level {{ lvl }}</span>
+                                            {% else %}
+                                                <span class="badge bg-light text-dark">-</span>
+                                            {% endif %}
+                                        {% endwith %}
+                                    </td>
+                                    <td>
+                                        {% if alert.rule and alert.rule.groups %}
+                                            {{ alert.rule.groups.0 }}
+                                        {% else %}
+                                            -
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class="mb-0 text-muted">
+                    Немає доступних детектів Wazuh або вони ще не завантажені.
+                </p>
+            {% endif %}
+        </div>
+    </div>
+
+    {# JSON із даними для графіків у прихованому <script> #}
+    <script id="wazuh-charts-data" type="application/json">
+        {{ wazuh_charts_json|safe }}
+    </script>
+
+    {# Підключаємо Chart.js і малюємо діаграми після розмітки #}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const dataEl = document.getElementById('wazuh-charts-data');
+            if (!dataEl) {
+                console.warn('Wazuh: елемент з JSON-даними не знайдено');
+                return;
+            }
+
+            let charts;
+            try {
+                charts = JSON.parse(dataEl.textContent || '{}');
+                console.log('Wazuh charts data:', charts);
+            } catch (e) {
+                console.error('Wazuh: не вдалося розпарсити JSON для графіків', e, dataEl.textContent);
+                return;
+            }
+
+            const statusCtx    = document.getElementById('wazuh-status-chart');
+            const platformsCtx = document.getElementById('wazuh-platforms-chart');
+
+            console.log('Chart global is', typeof Chart);
+
+            // 1. Статус агентів
+            if (statusCtx && charts.status) {
+                new Chart(statusCtx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: charts.status.labels,
+                        datasets: [{
+                            data: charts.status.data,
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: {
+                                position: 'bottom'
+                            }
+                        }
+                    }
+                });
+            }
+
+            // 2. Платформи (ОС)
+            if (platformsCtx && charts.platforms) {
+                new Chart(platformsCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: charts.platforms.labels,
+                        datasets: [{
+                            data: charts.platforms.data,
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                ticks: { precision: 0 }
+                            }
+                        },
+                        plugins: {
+                            legend: { display: false }
+                        }
+                    }
+                });
+            }
+        });
+    </script>
 </div>
 {% endblock %}

@@ -4,23 +4,27 @@ import requests
 
 
 class WazuhAPIError(Exception):
-    """Помилка при роботі з Wazuh API."""
+    """Помилка при роботі з Wazuh API / Wazuh Indexer."""
     pass
 
 
 def _get_wazuh_config():
     """
-    Читає конфіг з змінних середовища.
-    Аналогічно до _get_cs_credentials() для Falcon.
+    Читає конфіг Wazuh API зі змінних середовища.
+    Приклад:
+      WAZUH_API_URL=https://wazuh-manager:55000
+      WAZUH_API_USER=foo
+      WAZUH_API_PASSWORD=bar
+      WAZUH_API_VERIFY_SSL=false
     """
     base_url = os.getenv("WAZUH_API_URL")
     user = os.getenv("WAZUH_API_USER")
     password = os.getenv("WAZUH_API_PASSWORD")
     verify_ssl_raw = os.getenv("WAZUH_API_VERIFY_SSL", "false")
 
-    if not user or not password:
+    if not base_url or not user or not password:
         raise RuntimeError(
-            "Не знайдено WAZUH_API_USER / WAZUH_API_PASSWORD у змінних середовища"
+            "Не знайдено WAZUH_API_URL / WAZUH_API_USER / WAZUH_API_PASSWORD у змінних середовища"
         )
 
     # Проста обробка true/false
@@ -29,6 +33,32 @@ def _get_wazuh_config():
     # прибираємо можливий слеш в кінці
     base_url = base_url.rstrip("/")
 
+    return base_url, user, password, verify_ssl
+
+
+def _get_indexer_config():
+    """
+    Конфіг для Wazuh Indexer (OpenSearch/Elasticsearch).
+
+    Очікуємо змінні середовища, наприклад:
+      WAZUH_INDEXER_URL=https://wazuh-indexer:9200
+      WAZUH_INDEXER_USER=admin
+      WAZUH_INDEXER_PASSWORD=your_password
+      WAZUH_INDEXER_VERIFY_SSL=false
+    """
+    base_url = os.getenv("WAZUH_INDEXER_URL")
+    user = os.getenv("WAZUH_INDEXER_USER")
+    password = os.getenv("WAZUH_INDEXER_PASSWORD")
+    verify_ssl_raw = os.getenv("WAZUH_INDEXER_VERIFY_SSL", "false")
+
+    if not base_url or not user or not password:
+        raise RuntimeError(
+            "Не знайдено WAZUH_INDEXER_URL / WAZUH_INDEXER_USER / WAZUH_INDEXER_PASSWORD "
+            "у змінних середовища (потрібно для читання alerts/events)."
+        )
+
+    verify_ssl = verify_ssl_raw.strip().lower() in ("1", "true", "yes")
+    base_url = base_url.rstrip("/")
     return base_url, user, password, verify_ssl
 
 
@@ -102,7 +132,7 @@ def _request(method: str, path: str, params: dict | None = None) -> dict:
     return data
 
 
-# ----------------- ПУБЛІЧНІ ФУНКЦІЇ ----------------- #
+# ----------------- ПУБЛІЧНІ ФУНКЦІЇ ДЛЯ MANAGER API ----------------- #
 
 def get_agents(limit: int = 100, status: str | None = None) -> list[dict]:
     """
@@ -140,3 +170,99 @@ def get_agent_stats(agent_id: str) -> dict:
     """
     data = _request("GET", f"/agents/{agent_id}/stats")
     return data.get("data", {})
+
+
+# ----------------- ПУБЛІЧНІ ФУНКЦІЇ ДЛЯ INDEXER (ALERTS / EVENTS) ----------------- #
+
+def get_recent_alerts(limit: int = 50) -> list[dict]:
+    """
+    Останні детекти з Wazuh Indexer (індекс wazuh-alerts-*).
+    ЦЕ НЕ WAZUH API НА 55000, а запит у OpenSearch/Elasticsearch.
+    """
+    base_url, user, password, verify_ssl = _get_indexer_config()
+    url = f"{base_url}/wazuh-alerts-*/_search"
+
+    body = {
+        "size": limit,
+        "sort": [{"@timestamp": {"order": "desc"}}],
+        "query": {"match_all": {}},
+    }
+
+    try:
+        resp = requests.post(
+            url,
+            auth=(user, password),
+            json=body,
+            timeout=10,
+            verify=verify_ssl,
+        )
+    except requests.RequestException as exc:
+        raise WazuhAPIError(f"Помилка з'єднання з Wazuh Indexer (alerts): {exc}") from exc
+
+    if not resp.ok:
+        raise WazuhAPIError(
+            f"Wazuh Indexer (alerts) {resp.status_code}: {resp.text[:500]}"
+        )
+
+    try:
+        data = resp.json()
+    except ValueError as exc:
+        raise WazuhAPIError("Не вдалося розпарсити JSON-відповідь Wazuh Indexer (alerts)") from exc
+
+    hits = data.get("hits", {}).get("hits", [])
+
+    results: list[dict] = []
+    for h in hits:
+        src = h.get("_source", {}) or {}
+        # нормалізуємо timestamp
+        ts = src.get("@timestamp") or src.get("timestamp")
+        if ts and "timestamp" not in src:
+            src["timestamp"] = ts
+        results.append(src)
+    return results
+
+
+def get_recent_siem_events(limit: int = 50) -> list[dict]:
+    """
+    Останні "сиcлог" / SIEM-івенти з Wazuh Indexer (індекс wazuh-archives-*).
+    """
+    base_url, user, password, verify_ssl = _get_indexer_config()
+    url = f"{base_url}/wazuh-archives-*/_search"
+
+    body = {
+        "size": limit,
+        "sort": [{"@timestamp": {"order": "desc"}}],
+        "query": {"match_all": {}},
+    }
+
+    try:
+        resp = requests.post(
+            url,
+            auth=(user, password),
+            json=body,
+            timeout=10,
+            verify=verify_ssl,
+        )
+    except requests.RequestException as exc:
+        raise WazuhAPIError(f"Помилка з'єднання з Wazuh Indexer (events): {exc}") from exc
+
+    if not resp.ok:
+        raise WazuhAPIError(
+            f"Wazuh Indexer (events) {resp.status_code}: {resp.text[:500]}"
+        )
+
+    try:
+        data = resp.json()
+    except ValueError as exc:
+        raise WazuhAPIError("Не вдалося розпарсити JSON-відповідь Wazuh Indexer (events)") from exc
+
+    hits = data.get("hits", {}).get("hits", [])
+
+    results: list[dict] = []
+    for h in hits:
+        src = h.get("_source", {}) or {}
+        ts = src.get("@timestamp") or src.get("timestamp")
+        if ts and "timestamp" not in src:
+            src["timestamp"] = ts
+        results.append(src)
+    return results
