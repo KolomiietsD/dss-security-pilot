@@ -10,7 +10,6 @@
         Короткий список хостів (Wazuh + CrowdStrike).
     </p>
 
-    {# трохи стилів саме для логів #}
     <style>
         .log-block {
             max-height: 220px;
@@ -18,18 +17,58 @@
         }
         .log-block code {
             font-size: 0.75rem;
-            white-space: normal;      /* переносимо по <br> */
-            word-break: break-word;   /* довгі слова теж ламаємо */
+            white-space: normal;
+            word-break: break-word;
+        }
+        .unified-details-wrapper {
+            background-color: #fafafa;
         }
     </style>
 
-    {# ===================== WAZUH HOSTS (ПЕРШИМИ) ===================== #}
+    {# ===================== УНІФІКОВАНІ АКТИВИ (ТАБЛИЦЯ + АКОРДЕОН) ===================== #}
+    <h2 class="h4 mt-3 mb-2">Уніфіковані активи</h2>
+
+    <div id="unified-error" class="alert alert-danger d-none"></div>
+
+    <div id="unified-loader" class="d-flex align-items-center mb-2">
+        <div class="spinner-border spinner-border-sm me-2" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <span>Завантаження уніфікованого списку активів…</span>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm table-hover mb-0 align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width: 40px;"></th>
+                            <th style="width: 40px;">#</th>
+                            <th>Hostname</th>
+                            <th style="width: 140px;">IP</th>
+                            <th style="width: 150px;">Платформа</th>
+                            <th style="width: 160px;">Джерела</th>
+                            <th style="width: 110px;">Ризик</th>
+                        </tr>
+                    </thead>
+                    <tbody id="unified-assets-tbody">
+                        <!-- JS сюди додасть рядки -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <p id="unified-no-data" class="text-muted mt-2 d-none">
+        Поки що немає даних про активи.
+    </p>
+
+    {# ===================== WAZUH HOSTS ===================== #}
     <h2 class="h4 mt-3 mb-2">Wazuh – агенти</h2>
 
-    <!-- Блок для помилок Wazuh -->
     <div id="wazuh-error-block" class="alert alert-danger d-none"></div>
 
-    <!-- Loader Wazuh -->
     <div id="wazuh-loader" class="d-flex align-items-center mb-2">
         <div class="spinner-border spinner-border-sm me-2" role="status">
             <span class="visually-hidden">Loading...</span>
@@ -37,11 +76,10 @@
         <span>Завантаження хостів Wazuh…</span>
     </div>
 
-    <!-- Список хостів Wazuh з акордеоном -->
     <div class="card" style="max-width: 700px;">
         <div class="card-body p-2">
             <ul id="wazuh-hosts-list" class="list-group list-group-flush small">
-                <!-- JS додасть елементи -->
+                <!-- JS -->
             </ul>
         </div>
     </div>
@@ -50,13 +88,11 @@
         Поки що немає даних про хости Wazuh.
     </p>
 
-    {# ===================== CROWDSTRIKE / ASSETS (НИЖЧЕ) ===================== #}
+    {# ===================== CROWDSTRIKE / АКТИВИ ===================== #}
     <h2 class="h4 mt-4 mb-2">CrowdStrike – активи</h2>
 
-    <!-- Блок для помилок CrowdStrike -->
     <div id="cs-error-block" class="alert alert-danger d-none"></div>
 
-    <!-- Loader CrowdStrike -->
     <div id="cs-loader" class="d-flex align-items-center mb-2">
         <div class="spinner-border spinner-border-sm me-2" role="status">
             <span class="visually-hidden">Loading...</span>
@@ -64,11 +100,10 @@
         <span>Завантаження списку активів CrowdStrike…</span>
     </div>
 
-    <!-- Список активів з акордеоном -->
     <div class="card" style="max-width: 700px;">
         <div class="card-body p-2">
             <ul id="assets-list" class="list-group list-group-flush small">
-                <!-- JS сюди додасть елементи -->
+                <!-- JS -->
             </ul>
         </div>
     </div>
@@ -80,24 +115,18 @@
 
 <script>
 document.addEventListener("DOMContentLoaded", function () {
-    // ===================== СПІЛЬНІ ХЕЛПЕРИ =====================
+    // ===== helpers =====
     function getSeverityBadgeClass(sev) {
         if (!sev) return "bg-secondary";
         switch (sev.toLowerCase()) {
-            case "low":
-                return "bg-success";
-            case "medium":
-                return "bg-warning";
-            case "high":
-                return "bg-danger";
-            case "critical":
-                return "bg-dark";
-            default:
-                return "bg-secondary";
+            case "low": return "bg-success";
+            case "medium": return "bg-warning";
+            case "high": return "bg-danger";
+            case "critical": return "bg-dark";
+            default: return "bg-secondary";
         }
     }
 
-    // перетворення rule.level -> текст для Wazuh
     function mapWazuhLevelToSeverity(level) {
         if (level == null) return "unknown";
         const lvl = Number(level);
@@ -107,33 +136,331 @@ document.addEventListener("DOMContentLoaded", function () {
         return "critical";
     }
 
-    // акуратне форматування full_log / message
     function formatLogText(raw) {
         if (!raw) return "";
         let text = String(raw);
-
-        // часто full_log приходить з \\r\\n, \\n, \\t – нормалізуємо
         text = text
             .replace(/\\r\\n/g, "\n")
             .replace(/\\n/g, "\n")
             .replace(/\\t/g, "    ");
-
-        // плюс на всякий випадок реальні переводи рядка
-        // залишаємо як \n, а потім замінимо на <br>
-
-        // екрануємо HTML
         text = text
             .replace(/&/g, "&amp;")
             .replace(/</g, "&lt;")
             .replace(/>/g, "&gt;");
-
-        // тепер переводи рядка -> <br>
         text = text.replace(/\r?\n/g, "<br>");
-
         return text;
     }
 
-    // ===================== WAZUH HOSTS =====================
+    // ===== УНІФІКОВАНІ АКТИВИ: елемент логу (Wazuh / CS / інше) =====
+    function buildUnifiedLogItem(log) {
+        const li = document.createElement("li");
+        li.className = "mb-2 p-2 border rounded";
+
+        const src = log.source || "other";
+        const raw = log.raw || {};
+
+        let severityText = "unknown";
+        let sevClass = "bg-secondary";
+        let titleText = "";
+        let category = "";
+        let ts = "";
+        let idText = "";
+        let extraLine = "";
+        let fullLog = "";
+
+        if (src === "wazuh") {
+            const level = (raw.rule && raw.rule.level) || raw.level || null;
+            severityText = mapWazuhLevelToSeverity(level);
+            sevClass = getSeverityBadgeClass(severityText);
+
+            titleText = (raw.rule && raw.rule.description) || raw.description || "";
+            category =
+                (raw.rule && raw.rule.groups && raw.rule.groups.join(", ")) ||
+                raw.category || "";
+            ts = raw.timestamp || raw.datetime || raw.time || "";
+            idText = ((raw.rule && raw.rule.id) || raw.rule_id || "") +
+                     ((raw.id || raw.event_id) ? " / " + (raw.id || raw.event_id) : "");
+            const srcIp = raw.srcip || raw.src_ip || "";
+            const dstIp = raw.dstip || raw.dst_ip || "";
+            if (srcIp || dstIp) {
+                extraLine = "";
+                if (srcIp) extraLine += 'SRC: <span class="text-muted">' + srcIp + '</span> ';
+                if (dstIp) extraLine += 'DST: <span class="text-muted">' + dstIp + '</span>';
+            }
+            fullLog = raw.full_log || raw.log || raw.message || "";
+
+        } else if (src === "crowdstrike") {
+            const sev = raw.severity || "unknown";
+            severityText = sev;
+            sevClass = getSeverityBadgeClass(sev);
+
+            titleText = raw.title || raw.name || "";
+            category = (raw.tactic || "") + (raw.technique ? " / " + raw.technique : "");
+            ts = raw.start_time || raw.timestamp || "";
+            idText = raw.id || raw.detect_id || "";
+            if (raw.policy_name || raw.rule_name) {
+                extraLine = 'Policy: <span class="text-muted">' +
+                            (raw.policy_name || raw.rule_name) + '</span>';
+            }
+            fullLog = raw.description || raw.summary || "";
+        } else {
+            severityText = raw.severity || "unknown";
+            sevClass = getSeverityBadgeClass(severityText);
+            titleText = raw.title || raw.message || "";
+            ts = raw.timestamp || "";
+            idText = raw.id || "";
+            fullLog = raw.description || raw.summary || raw.message || "";
+        }
+
+        let inner = '';
+        inner += '<div class="d-flex justify-content-between align-items-start">';
+        inner += '  <div>';
+        inner += '    <span class="badge ' + sevClass + ' me-1 text-uppercase">' +
+                    severityText + '</span>';
+        inner += '    <span class="badge bg-info-subtle text-dark border ms-1">' +
+                    (src === "wazuh" ? "Wazuh" :
+                     src === "crowdstrike" ? "CrowdStrike" : src) +
+                 '</span>';
+        if (titleText) {
+            inner += '    <div class="fw-semibold mt-1">' + titleText + '</div>';
+        }
+        if (category) {
+            inner += '    <div class="small text-muted">' + category + '</div>';
+        }
+        if (extraLine) {
+            inner += '    <div class="small">' + extraLine + '</div>';
+        }
+        if (fullLog) {
+            inner += '    <div class="small mt-1 text-muted log-block"><code>' +
+                     formatLogText(fullLog) +
+                     '</code></div>';
+        }
+        inner += '  </div>';
+        if (ts) {
+            inner += '  <div class="text-end small text-muted ms-2">' + ts + '</div>';
+        }
+        inner += '</div>';
+        if (idText) {
+            inner += '<div class="small text-muted mt-1">ID: ' + idText + '</div>';
+        }
+
+        li.innerHTML = inner;
+        return li;
+    }
+
+    // ===== УНІФІКОВАНІ АКТИВИ: побудова контенту акордеону по активу =====
+    function buildUnifiedDetailsContent(container, asset) {
+        container.innerHTML = "";
+
+        const hostname = asset.hostname || null;
+        const sources = asset.sources || {};
+
+        const wzLogs = [];
+        const csLogs = [];
+        const otherLogs = [];
+
+        // Якщо бекенд поклав logs прямо в asset — використовуємо їх
+        if (asset.logs && asset.logs.length) {
+            asset.logs.forEach(function (log) {
+                if (log.source === "wazuh") wzLogs.push(log);
+                else if (log.source === "crowdstrike") csLogs.push(log);
+                else otherLogs.push(log);
+            });
+        } else {
+            // Інакше самі будуємо списки із вже завантажених wazuhEventsData / detectsData
+
+            // --- Wazuh ---
+            if (hostname && sources.wazuh) {
+                if (!wazuhEventsLoaded && !wazuhEventsLoadError) {
+                    container.innerHTML =
+                        '<span class="text-muted">Події Wazuh ще завантажуються… Спробуйте за мить.</span>';
+                    return;
+                }
+                if (wazuhEventsLoadError) {
+                    container.innerHTML =
+                        '<span class="text-danger">Помилка при завантаженні подій Wazuh: ' +
+                        wazuhEventsLoadError + '</span>';
+                    return;
+                }
+
+                const hostEvents = wazuhEventsData.filter(function (ev) {
+                    const evHostname =
+                        ev.hostname ||
+                        ev.agent_name ||
+                        (ev.agent && (ev.agent.name || ev.agent.hostname)) ||
+                        null;
+                    return evHostname === hostname;
+                });
+
+                hostEvents.forEach(function (ev) {
+                    wzLogs.push({ source: "wazuh", raw: ev });
+                });
+            }
+
+            // --- CrowdStrike ---
+            if (hostname && sources.crowdstrike) {
+                if (!detectsLoaded && !detectsLoadError) {
+                    container.innerHTML =
+                        '<span class="text-muted">Детекти CrowdStrike ще завантажуються… Спробуйте за мить.</span>';
+                    return;
+                }
+                if (detectsLoadError) {
+                    container.innerHTML =
+                        '<span class="text-danger">Помилка при завантаженні детектів: ' +
+                        detectsLoadError + '</span>';
+                    return;
+                }
+
+                const hostDetects = detectsData.filter(function (d) {
+                    const detHostname =
+                        d.hostname ||
+                        d.device_hostname ||
+                        (d.device && d.device.hostname) ||
+                        null;
+                    return detHostname === hostname;
+                });
+
+                hostDetects.forEach(function (d) {
+                    csLogs.push({ source: "crowdstrike", raw: d });
+                });
+            }
+        }
+
+        if (!wzLogs.length && !csLogs.length && !otherLogs.length) {
+            container.innerHTML =
+                '<span class="text-muted">Для цього активу подій не знайдено.</span>';
+            return;
+        }
+
+        if (wzLogs.length) {
+            const t = document.createElement("div");
+            t.className = "fw-bold mb-1";
+            t.textContent = "Події Wazuh";
+            container.appendChild(t);
+
+            const ul = document.createElement("ul");
+            ul.className = "list-unstyled mb-2";
+            wzLogs.forEach(function (log) { ul.appendChild(buildUnifiedLogItem(log)); });
+            container.appendChild(ul);
+        }
+
+        if (csLogs.length) {
+            const t = document.createElement("div");
+            t.className = "fw-bold mt-2 mb-1";
+            t.textContent = "Детекти CrowdStrike";
+            container.appendChild(t);
+
+            const ul = document.createElement("ul");
+            ul.className = "list-unstyled mb-2";
+            csLogs.forEach(function (log) { ul.appendChild(buildUnifiedLogItem(log)); });
+            container.appendChild(ul);
+        }
+
+        if (otherLogs.length) {
+            const t = document.createElement("div");
+            t.className = "fw-bold mt-2 mb-1";
+            t.textContent = "Інші джерела";
+            container.appendChild(t);
+
+            const ul = document.createElement("ul");
+            ul.className = "list-unstyled mb-2";
+            otherLogs.forEach(function (log) { ul.appendChild(buildUnifiedLogItem(log)); });
+            container.appendChild(ul);
+        }
+    }
+
+    function buildUnifiedRow(asset, index) {
+        const frag = document.createDocumentFragment();
+
+        const hostname = asset.hostname || "(без імені)";
+        const ip = asset.ip || "—";
+        const platform = asset.platform || asset.os || "—";
+
+        const sources = asset.sources || {};
+        const vendor = asset.vendor || "";
+        const srcParts = [];
+        if (sources.wazuh) srcParts.push("Wazuh");
+        if (sources.crowdstrike) srcParts.push("CrowdStrike");
+        if (!srcParts.length && vendor) srcParts.push(vendor);
+        const srcText = srcParts.length ? srcParts.join(", ") : "—";
+
+        let riskText = "—";
+        if (asset.risk_score != null) {
+            try {
+                riskText = (asset.risk_score * 100).toFixed(0) + " %";
+            } catch (e) {
+                riskText = String(asset.risk_score);
+            }
+        }
+
+        const mainTr = document.createElement("tr");
+        const toggleTd = document.createElement("td");
+        const toggleBtn = document.createElement("button");
+        toggleBtn.type = "button";
+        toggleBtn.className = "btn btn-sm btn-light border-0";
+        toggleBtn.textContent = "▶";
+        toggleBtn.setAttribute("aria-expanded", "false");
+        toggleTd.appendChild(toggleBtn);
+
+        const numTd = document.createElement("td");
+        numTd.className = "text-muted";
+        numTd.textContent = index + 1;
+
+        const hostTd = document.createElement("td");
+        hostTd.innerHTML = '<span class="fw-semibold">' + hostname + '</span>';
+
+        const ipTd = document.createElement("td");
+        ipTd.innerHTML = '<code>' + ip + '</code>';
+
+        const platTd = document.createElement("td");
+        platTd.textContent = platform;
+
+        const srcTd = document.createElement("td");
+        srcTd.textContent = srcText;
+
+        const riskTd = document.createElement("td");
+        riskTd.textContent = riskText;
+
+        mainTr.appendChild(toggleTd);
+        mainTr.appendChild(numTd);
+        mainTr.appendChild(hostTd);
+        mainTr.appendChild(ipTd);
+        mainTr.appendChild(platTd);
+        mainTr.appendChild(srcTd);
+        mainTr.appendChild(riskTd);
+
+        const detailsTr = document.createElement("tr");
+        detailsTr.className = "d-none unified-details-wrapper";
+        const detailsTd = document.createElement("td");
+        detailsTd.colSpan = 7;
+        const detailsContainer = document.createElement("div");
+        detailsContainer.className = "pt-2 small";
+        detailsTd.appendChild(detailsContainer);
+        detailsTr.appendChild(detailsTd);
+
+        toggleBtn.addEventListener("click", function () {
+            const isOpen = !detailsTr.classList.contains("d-none");
+            if (isOpen) {
+                detailsTr.classList.add("d-none");
+                toggleBtn.textContent = "▶";
+                toggleBtn.setAttribute("aria-expanded", "false");
+            } else {
+                if (!detailsTr.dataset.loaded) {
+                    buildUnifiedDetailsContent(detailsContainer, asset);
+                    detailsTr.dataset.loaded = "1";
+                }
+                detailsTr.classList.remove("d-none");
+                toggleBtn.textContent = "▼";
+                toggleBtn.setAttribute("aria-expanded", "true");
+            }
+        });
+
+        frag.appendChild(mainTr);
+        frag.appendChild(detailsTr);
+        return frag;
+    }
+
+    // ===== Wazuh hosts (нижній блок, як було) =====
     const wzLoader = document.getElementById("wazuh-loader");
     const wzErrorBlock = document.getElementById("wazuh-error-block");
     const wzNoDataMsg = document.getElementById("wazuh-no-data-msg");
@@ -159,7 +486,6 @@ document.addEventListener("DOMContentLoaded", function () {
     function buildWazuhDetailsContent(container, host) {
         container.innerHTML = "";
 
-        // 1) Основна інформація Wazuh-хоста
         const infoDiv = document.createElement("div");
         infoDiv.className = "mb-2";
 
@@ -183,9 +509,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
         container.appendChild(infoDiv);
 
-        // 2) Події Wazuh
         const evBlock = document.createElement("div");
-
         const title = document.createElement("div");
         title.className = "fw-bold mb-1";
         title.textContent = "Події Wazuh";
@@ -253,7 +577,6 @@ document.addEventListener("DOMContentLoaded", function () {
             const fullLog = ev.full_log || ev.log || ev.message || "";
 
             let inner = "";
-
             inner += '<div class="d-flex justify-content-between align-items-start">';
             inner += '  <div>';
             inner += '    <span class="badge ' + sevClass + ' me-1 text-uppercase">' +
@@ -283,7 +606,6 @@ document.addEventListener("DOMContentLoaded", function () {
                 inner += '  <div class="text-end small text-muted ms-2">' + ts + '</div>';
             }
             inner += '</div>';
-
             if (ruleId || eventId) {
                 inner += '<div class="small text-muted mt-1">';
                 if (ruleId) inner += 'Rule ID: ' + ruleId + ' ';
@@ -331,7 +653,6 @@ document.addEventListener("DOMContentLoaded", function () {
 
         toggleBtn.addEventListener("click", function () {
             const isOpen = !details.classList.contains("d-none");
-
             if (isOpen) {
                 details.classList.add("d-none");
                 toggleBtn.textContent = "▶";
@@ -346,71 +667,53 @@ document.addEventListener("DOMContentLoaded", function () {
 
         li.appendChild(header);
         li.appendChild(details);
-
         return li;
     }
 
-    // 1) Завантаження хостів Wazuh
+    // Wazuh: хости
     fetch(wazuhHostsUrl)
-        .then(function (response) {
-            if (!response.ok) {
-                throw new Error("HTTP " + response.status);
-            }
-            return response.json();
-        })
-        .then(function (data) {
+        .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+        .then(data => {
             wzLoader.classList.add("d-none");
-
-            if (!data.success) {
-                throw new Error(data.error || "Невідома помилка при отриманні хостів Wazuh");
-            }
-
+            if (!data.success) throw new Error(data.error || "Невідома помилка при отриманні хостів Wazuh");
             const hosts = data.hosts || data.agents || [];
             wazuhHostsData = hosts;
-
-            if (hosts.length === 0) {
+            if (!hosts.length) {
                 wzNoDataMsg.classList.remove("d-none");
                 return;
             }
-
-            hosts.forEach(function (h, index) {
-                const li = createWazuhHostRow(h, index);
-                wzList.appendChild(li);
-            });
+            hosts.forEach((h, i) => wzList.appendChild(createWazuhHostRow(h, i)));
         })
-        .catch(function (err) {
+        .catch(err => {
             wzLoader.classList.add("d-none");
-            wzErrorBlock.textContent =
-                "Помилка при завантаженні хостів Wazuh: " + err.message;
+            wzErrorBlock.textContent = "Помилка при завантаженні хостів Wazuh: " + err.message;
             wzErrorBlock.classList.remove("d-none");
             wzNoDataMsg.classList.remove("d-none");
         });
 
-    // 2) Події Wazuh
+    // Wazuh: події
     fetch(wazuhEventsUrl)
-        .then(function (response) {
-            if (!response.ok) {
-                throw new Error("HTTP " + response.status);
-            }
-            return response.json();
-        })
-        .then(function (data) {
-            if (!data.success) {
-                throw new Error(data.error || "Невідома помилка при отриманні подій Wazuh");
-            }
+        .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+        .then(data => {
+            if (!data.success) throw new Error(data.error || "Невідома помилка при отриманні подій Wazuh");
             wazuhEventsData = data.events || data.alerts || [];
             wazuhEventsLoaded = true;
         })
-        .catch(function (err) {
+        .catch(err => {
             wazuhEventsLoadError = err.message;
             wazuhEventsLoaded = true;
         });
 
-    // ===================== CROWDSTRIKE / ASSETS =====================
+    // ===== CrowdStrike / Unified assets =====
     const csLoader = document.getElementById("cs-loader");
     const csErrorBlock = document.getElementById("cs-error-block");
     const csNoDataMsg = document.getElementById("cs-no-data-msg");
     const csList = document.getElementById("assets-list");
+
+    const unifiedLoader = document.getElementById("unified-loader");
+    const unifiedError = document.getElementById("unified-error");
+    const unifiedNoData = document.getElementById("unified-no-data");
+    const unifiedTbody = document.getElementById("unified-assets-tbody");
 
     let assetsData = [];
     let detectsData = [];
@@ -419,15 +722,6 @@ document.addEventListener("DOMContentLoaded", function () {
 
     const assetsUrl = "/assets/data/";
     const detectsUrl = "/crowdstrike/detects/";
-
-    function findHostnameInDetect(d) {
-        return (
-            d.hostname ||
-            d.device_hostname ||
-            (d.device && d.device.hostname) ||
-            null
-        );
-    }
 
     function buildCsDetailsContent(container, asset) {
         container.innerHTML = "";
@@ -455,7 +749,6 @@ document.addEventListener("DOMContentLoaded", function () {
         container.appendChild(infoDiv);
 
         const detBlock = document.createElement("div");
-
         const title = document.createElement("div");
         title.className = "fw-bold mb-1";
         title.textContent = "Детекти CrowdStrike";
@@ -490,11 +783,15 @@ document.addEventListener("DOMContentLoaded", function () {
         }
 
         const hostDetects = detectsData.filter(function (d) {
-            const detHostname = findHostnameInDetect(d);
+            const detHostname =
+                d.hostname ||
+                d.device_hostname ||
+                (d.device && d.device.hostname) ||
+                null;
             return detHostname === asset.hostname;
         });
 
-        if (hostDetects.length === 0) {
+        if (!hostDetects.length) {
             msgDiv.innerHTML =
                 '<span class="text-muted">Для цього хоста детектів не знайдено.</span>';
             return;
@@ -515,41 +812,23 @@ document.addEventListener("DOMContentLoaded", function () {
             const id = d.id || d.detect_id || "";
             const titleText = d.title || d.name || "";
             const policy = d.policy_name || d.rule_name || "";
-
             const typeText = d.type || d.alert_type || d.event_type || "";
             const desc = d.description || d.summary || "";
 
             let inner = "";
-
             inner += '<div class="d-flex justify-content-between align-items-start">';
             inner += '  <div>';
             inner += '    <span class="badge ' + sevClass + ' me-1 text-uppercase">' + sev + '</span>';
-            if (status) {
-                inner += '    <span class="text-muted small">' + status + '</span>';
-            }
-            if (titleText) {
-                inner += '    <div class="fw-semibold">' + titleText + '</div>';
-            }
-            if (typeText) {
-                inner += '    <div class="small">Тип: <span class="text-muted">' + typeText + '</span></div>';
-            }
-            if (tactic || technique) {
-                inner += '    <div class="small text-muted">' + tactic + ' ' + technique + '</div>';
-            }
-            if (policy) {
-                inner += '    <div class="small text-muted">Policy: ' + policy + '</div>';
-            }
-            if (desc) {
-                inner += '    <div class="small mt-1">' + desc + '</div>';
-            }
+            if (status) inner += '    <span class="text-muted small">' + status + '</span>';
+            if (titleText) inner += '    <div class="fw-semibold">' + titleText + '</div>';
+            if (typeText) inner += '    <div class="small">Тип: <span class="text-muted">' + typeText + '</span></div>';
+            if (tactic || technique) inner += '    <div class="small text-muted">' + tactic + ' ' + technique + '</div>';
+            if (policy) inner += '    <div class="small text-muted">Policy: ' + policy + '</div>';
+            if (desc) inner += '    <div class="small mt-1">' + desc + '</div>';
             inner += '  </div>';
-            if (time) {
-                inner += '  <div class="text-end small text-muted ms-2">' + time + '</div>';
-            }
+            if (time) inner += '  <div class="text-end small text-muted ms-2">' + time + '</div>';
             inner += '</div>';
-            if (id) {
-                inner += '<div class="small text-muted mt-1">ID: ' + id + '</div>';
-            }
+            if (id) inner += '<div class="small text-muted mt-1">ID: ' + id + '</div>';
 
             li.innerHTML = inner;
             ul.appendChild(li);
@@ -591,7 +870,6 @@ document.addEventListener("DOMContentLoaded", function () {
 
         toggleBtn.addEventListener("click", function () {
             const isOpen = !details.classList.contains("d-none");
-
             if (isOpen) {
                 details.classList.add("d-none");
                 toggleBtn.textContent = "▶";
@@ -606,62 +884,66 @@ document.addEventListener("DOMContentLoaded", function () {
 
         li.appendChild(header);
         li.appendChild(details);
-
         return li;
     }
 
-    // 1) Завантажуємо активи CrowdStrike
+    // Завантажуємо уніфіковані активи
     fetch(assetsUrl)
-        .then(function (response) {
-            if (!response.ok) {
-                throw new Error("HTTP " + response.status);
-            }
-            return response.json();
-        })
-        .then(function (data) {
+        .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+        .then(data => {
+            unifiedLoader.classList.add("d-none");
             csLoader.classList.add("d-none");
 
-            if (!data.success) {
-                throw new Error(data.error || "Невідома помилка при отриманні активів");
-            }
+            if (!data.success) throw new Error(data.error || "Невідома помилка при отриманні активів");
 
             const assets = data.assets || [];
             assetsData = assets;
 
-            if (assets.length === 0) {
+            if (!assets.length) {
+                unifiedNoData.classList.remove("d-none");
                 csNoDataMsg.classList.remove("d-none");
                 return;
             }
 
+            // верхня таблиця
             assets.forEach(function (a, index) {
-                const li = createAssetRow(a, index);
-                csList.appendChild(li);
+                unifiedTbody.appendChild(buildUnifiedRow(a, index));
             });
+
+            // нижній блок CrowdStrike: тільки ті, де є sources.crowdstrike === true
+            const csAssets = assets.filter(a => a.sources && a.sources.crowdstrike);
+            if (!csAssets.length) {
+                csNoDataMsg.classList.remove("d-none");
+            } else {
+                csAssets.forEach(function (a, index) {
+                    csList.appendChild(createAssetRow(a, index));
+                });
+            }
         })
-        .catch(function (err) {
+        .catch(err => {
+            unifiedLoader.classList.add("d-none");
             csLoader.classList.add("d-none");
+
+            unifiedError.textContent =
+                "Помилка при завантаженні уніфікованих активів: " + err.message;
+            unifiedError.classList.remove("d-none");
+            unifiedNoData.classList.remove("d-none");
+
             csErrorBlock.textContent =
                 "Помилка при завантаженні даних: " + err.message;
             csErrorBlock.classList.remove("d-none");
             csNoDataMsg.classList.remove("d-none");
         });
 
-    // 2) Паралельно тягнемо всі недавні детекти CrowdStrike
+    // CrowdStrike детекти (для акордеонів)
     fetch(detectsUrl)
-        .then(function (response) {
-            if (!response.ok) {
-                throw new Error("HTTP " + response.status);
-            }
-            return response.json();
-        })
-        .then(function (data) {
-            if (!data.success) {
-                throw new Error(data.error || "Невідома помилка при отриманні детектів");
-            }
+        .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+        .then(data => {
+            if (!data.success) throw new Error(data.error || "Невідома помилка при отриманні детектів");
             detectsData = data.detects || [];
             detectsLoaded = true;
         })
-        .catch(function (err) {
+        .catch(err => {
             detectsLoadError = err.message;
             detectsLoaded = true;
         });
