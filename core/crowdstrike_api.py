@@ -2,6 +2,9 @@ from falconpy import Hosts, Alerts
 from datetime import datetime, timezone
 import os
 
+# Два допустимі теги для ІСППР
+CS_ALLOWED_TAGS = ["isppr", "FalconGroupingTags/isppr"]
+
 
 def _get_cs_credentials():
     client_id = os.getenv("FALCON_CLIENT_ID")
@@ -15,7 +18,91 @@ def _get_cs_credentials():
     return client_id, client_secret
 
 
+def _build_tag_filter(field: str) -> str:
+    """
+    Побудова FQL-фільтра по кількох тегах:
+      tags:['isppr','FalconGroupingTags/isppr']
+    """
+    if not CS_ALLOWED_TAGS:
+        return ""
+
+    if len(CS_ALLOWED_TAGS) == 1:
+        return f"{field}:'{CS_ALLOWED_TAGS[0]}'"
+
+    values = ",".join(f"'{t}'" for t in CS_ALLOWED_TAGS)
+    return f"{field}:[{values}]"
+
+
+def _build_id_filter(field: str, ids):
+    """
+    Побудова FQL-фільтра по списку device_id:
+      device.device_id:'AID'
+      device.device_id:['AID1','AID2',...]
+    """
+    ids = [i for i in ids if i]
+    if not ids:
+        return ""
+
+    if len(ids) == 1:
+        return f"{field}:'{ids[0]}'"
+
+    values = ",".join(f"'{i}'" for i in ids)
+    return f"{field}:[{values}]"
+
+
+def _get_allowed_device_ids(limit: int = 5000):
+    """
+    Повертає список device_id тільки для хостів з тегами
+    isppr / FalconGroupingTags/isppr.
+    """
+    client_id, client_secret = _get_cs_credentials()
+
+    falcon_hosts = Hosts(
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+    tag_filter = _build_tag_filter("tags")
+
+    resp = falcon_hosts.query_devices_by_filter_combined(
+        limit=limit,
+        sort="last_seen.desc",
+        filter=tag_filter,
+    )
+
+    try:
+        status_code = resp["status_code"]
+        body = resp["body"]
+    except Exception:
+        raise RuntimeError(
+            f"Несподіваний формат відповіді CrowdStrike (Hosts): {type(resp)}"
+        )
+
+    if status_code != 200:
+        errors = body.get("errors") or []
+        if isinstance(errors, list):
+            msg = ", ".join(e.get("message", "") for e in errors)
+        else:
+            msg = str(errors)
+        raise RuntimeError(f"Hosts API error {status_code}: {msg}")
+
+    resources = body.get("resources") or []
+
+    device_ids = []
+    for r in resources:
+        aid = r.get("device_id") or r.get("aid")
+        if aid:
+            device_ids.append(aid)
+
+    return device_ids
+
+
+# ---------------------------- ХОСТИ ---------------------------- #
+
 def get_recent_devices(limit: int = 100):
+    """
+    Повертає хости тільки з тегами isppr / FalconGroupingTags/isppr.
+    """
     client_id, client_secret = _get_cs_credentials()
 
     falcon = Hosts(
@@ -23,9 +110,12 @@ def get_recent_devices(limit: int = 100):
         client_secret=client_secret,
     )
 
+    tag_filter = _build_tag_filter("tags")
+
     response = falcon.query_devices_by_filter_combined(
         limit=limit,
         sort="last_seen.desc",  # найсвіжіші хости першими
+        filter=tag_filter,
     )
 
     try:
@@ -81,12 +171,21 @@ def get_recent_devices(limit: int = 100):
     return devices
 
 
+# ---------------------------- ДЕТЕКТИ ---------------------------- #
+
 def get_recent_detects(limit: int = 200):
     """
-    Повертає список останніх детекцій (alerts) у форматі, який очікує фронтенд.
-    Працює через Alerts API (Detects API вимкнули).
+    Повертає список останніх детекцій (alerts) тільки для хостів,
+    які мають теги isppr / FalconGroupingTags/isppr.
     """
     client_id, client_secret = _get_cs_credentials()
+
+    # 0. Отримуємо device_id тільки дозволених хостів
+    allowed_ids = _get_allowed_device_ids()
+    if not allowed_ids:
+        return []
+
+    device_filter = _build_id_filter("device.device_id", allowed_ids)
 
     falcon = Alerts(
         client_id=client_id,
@@ -97,6 +196,7 @@ def get_recent_detects(limit: int = 200):
     query_resp = falcon.query_alerts_v2(
         limit=limit,
         sort="created_timestamp.desc",
+        filter=device_filter,
     )
 
     try:
@@ -228,21 +328,18 @@ def get_recent_detects(limit: int = 200):
             or primary_behavior.get("technique")
         )
 
-        # користувач
         user_name = (
             alert.get("user_name")
             or alert.get("user")
             or primary_behavior.get("user_name")
         )
 
-        # процес
         process_name = (
             primary_behavior.get("filename")
             or primary_behavior.get("image_file_name")
             or primary_behavior.get("process")
         )
 
-        # мережа (беремо перший запис, якщо є)
         remote_ip = None
         remote_port = None
         net_details = alert.get("network_details") or alert.get("network") or []
@@ -250,7 +347,6 @@ def get_recent_detects(limit: int = 200):
             net_details = [net_details]
 
         if net_details:
-            # можна спробувати знайти egress, а якщо нема – перший
             chosen = None
             for nd in net_details:
                 if nd.get("direction") == "egress":
@@ -273,7 +369,7 @@ def get_recent_detects(limit: int = 200):
             {
                 # ID-шники
                 "event_id": alert.get("composite_id"),
-                "detection_id": alert.get("composite_id"),  # для фронту (data-detection-id)
+                "detection_id": alert.get("composite_id"),
                 "device_id": device.get("aid") or device.get("device_id"),
 
                 # базове
