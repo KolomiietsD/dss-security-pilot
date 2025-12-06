@@ -18,6 +18,8 @@ from core.views import (
     wazuh_view,
     wazuh_hosts_data,
     wazuh_events_data,
+    bert_demo,
+
 
 )
 
@@ -55,4 +57,7 @@ urlpatterns = [
     ),
 
     path("assets/detections/",asset_detections_data, name="asset_detections"),
+
+    path("bert/", bert_demo, name="bert_demo"),
+
 ]

@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{% block title %}BERT демо{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1 class="mb-3">BERT – демо сторінка</h1>
+
+    <p class="text-muted mb-3">
+        Введи текст (українською, англійською чи іншою мовою),
+        а модель на базі BERT спробує оцінити емоційне забарвлення
+        від <strong>1</strong> до <strong>5</strong> зірок.
+    </p>
+
+    {% if error %}
+        <div class="alert alert-danger">
+            {{ error }}
+        </div>
+    {% endif %}
+
+    <form method="post" class="mb-4">
+        {% csrf_token %}
+        <div class="mb-3">
+            <label for="text" class="form-label">Текст для аналізу</label>
+            <textarea
+                id="text"
+                name="text"
+                class="form-control"
+                rows="4"
+                placeholder="Наприклад: 'Мені дуже подобається наша нова система моніторингу.'"
+            >{{ text }}</textarea>
+        </div>
+
+        <button type="submit" class="btn btn-primary">
+            Проаналізувати BERT'ом
+        </button>
+    </form>
+
+    {% if result %}
+        <div class="card mb-4">
+            <div class="card-header py-2">
+                <strong>Результат аналізу</strong>
+            </div>
+            <div class="card-body">
+                <p class="mb-1">
+                    <strong>Оцінка (клас):</strong>
+                    {{ result.label }}
+                </p>
+                <p class="mb-0">
+                    <strong>Ймовірність:</strong>
+                    {{ result.score|floatformat:3 }}
+                </p>
+
+                <div class="mt-3">
+                    {% if "1" in result.label %}
+                        <span class="badge bg-danger">Дуже негативний</span>
+                    {% elif "2" in result.label %}
+                        <span class="badge bg-warning text-dark">Негативний</span>
+                    {% elif "3" in result.label %}
+                        <span class="badge bg-secondary">Нейтральний</span>
+                    {% elif "4" in result.label %}
+                        <span class="badge bg-info text-dark">Позитивний</span>
+                    {% elif "5" in result.label %}
+                        <span class="badge bg-success">Дуже позитивний</span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    {% endif %}
+
+    <hr class="my-4">
+
+    <h5>Що тут відбувається під капотом?</h5>
+    <ul class="small text-muted">
+        <li>BERT розбиває текст на токени (слова/частини слів).</li>
+        <li>Текст проходить кілька шарів трансформера, де моделюються зв’язки між словами.</li>
+        <li>Останній вектор подається у класифікатор, який видає оцінку 1–5 зірок.</li>
+        <li>Ми показуємо клас (кількість зірок) і ймовірність цього варіанту.</li>
+    </ul>
+</div>
+{% endblock %}

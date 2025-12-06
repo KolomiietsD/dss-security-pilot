@@ -1,6 +1,7 @@
 # core/views.py
 from django.shortcuts import render
 from django.http import JsonResponse
+from .bert_model import analyze_text
 
 from .crowdstrike_api import get_recent_devices, get_recent_detects
 from .wazuh_api import (
@@ -100,6 +101,25 @@ def _ip_from_wazuh_log(ev: Dict[str, Any]) -> Optional[str]:
         or ev.get("dst_ip")
     )
 
+
+def bert_demo(request):
+    result = None
+    text = ""
+    error = None
+
+    if request.method == "POST":
+        text = request.POST.get("text", "")
+        try:
+            result = analyze_text(text)
+        except Exception as e:
+            error = f"Помилка при роботі з BERT: {e}"
+
+    context = {
+        "text": text,
+        "result": result,
+        "error": error,
+    }
+    return render(request, "bert_demo.html", context)
 
 def _hostname_from_cs_log(d: Dict[str, Any]) -> Optional[str]:
     return (
