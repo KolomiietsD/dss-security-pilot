@@ -3,8 +3,6 @@ from falconpy import Hosts, Alerts
 from datetime import datetime, timezone
 import os
 
-from .log_normalizer import normalize_cs_alert  # 👈 додаємо нормалізатор CS-логів
-
 # Два допустимі теги для ІСППР
 CS_ALLOWED_TAGS = ["isppr", "FalconGroupingTags/isppr"]
 
@@ -102,6 +100,7 @@ def _get_allowed_device_ids(limit: int = 5000):
 
 # ---------------------------- ХОСТИ ---------------------------- #
 
+
 def get_recent_devices(limit: int = 100):
     """
     Повертає хости тільки з тегами isppr / FalconGroupingTags/isppr.
@@ -174,15 +173,16 @@ def get_recent_devices(limit: int = 100):
     return devices
 
 
-# ---------------------------- ДЕТЕКТИ (старий формат для фронту) ---------------------------- #
+# ---------------------------- ДЕТЕКТИ (сирі) ---------------------------- #
+
 
 def get_recent_detects(limit: int = 200):
     """
     Повертає список останніх детекцій (alerts) тільки для хостів,
     які мають теги isppr / FalconGroupingTags/isppr.
 
-    Ця функція повертає "напів-нормалізований" формат під поточний фронтенд.
-    Для уніфікованої обробки логів краще використовувати get_normalized_cs_alerts().
+    Повертає вже більш-менш структуруваний словник, але ще не в
+    "єдиному форматі" логів. Для цього є get_normalized_cs_alerts().
     """
     client_id, client_secret = _get_cs_credentials()
 
@@ -275,13 +275,11 @@ def get_recent_detects(limit: int = 200):
             elif sev_raw >= 20:
                 sev_str = "low"
             else:
-                sev_str = "info"
+                sev_str = "informational"
         else:
-            sev_str = ""
+            sev_str = "informational"
 
-        # ⛔️ відкидаємо informational
-        if sev_str in ("info", "informational", ""):
-            continue
+        # ⚠️ БІЛЬШЕ НЕ ВИКИДАЄМО informational — все йде далі
 
         # ---------- Продукт / платформа ----------
         product = (
@@ -415,86 +413,50 @@ def get_recent_detects(limit: int = 200):
                     or alert.get("summary")
                     or ""
                 ),
+
+                # сировина — про всяк випадок
+                "raw": alert,
             }
         )
 
     return detects
 
 
-# ---------------------------- НОРМАЛІЗОВАНІ ДЕТЕКТИ ДЛЯ ІСППР ---------------------------- #
+# ---------------------------- НОРМАЛІЗАЦІЯ ДЛЯ УНІФІКОВАНИХ ЕПІЗОДІВ ---------------------------- #
 
-def get_normalized_cs_alerts(limit: int = 200) -> list[dict]:
+
+def get_normalized_cs_alerts(limit: int = 200):
     """
-    Повертає уніфіковані (нормалізовані) алерти CrowdStrike тільки для хостів
-    з тегами isppr / FalconGroupingTags/isppr.
+    Повертає події CrowdStrike в уніфікованому форматі для
+    core.unified_events.get_unified_events().
 
-    На відміну від get_recent_detects, повертає raw-алерти, пропущені через
-    core.log_normalizer.normalize_cs_alert, щоб формат був спільний з Wazuh.
+    Структура події:
+      {
+        "source": "crowdstrike",
+        "hostname": str,
+        "timestamp": str,
+        "severity": str,
+        "description": str,
+        "event_type": str,
+        "product": str,
+        "raw": {... оригінальний/напівнормалізований словник ...}
+      }
     """
-    client_id, client_secret = _get_cs_credentials()
+    raw_detects = get_recent_detects(limit=limit)
+    normalized = []
 
-    # 0. device_id тільки дозволених хостів
-    allowed_ids = _get_allowed_device_ids()
-    if not allowed_ids:
-        return []
-
-    device_filter = _build_id_filter("device.device_id", allowed_ids)
-
-    falcon = Alerts(
-        client_id=client_id,
-        client_secret=client_secret,
-    )
-
-    # 1. Отримуємо composite_ids
-    query_resp = falcon.query_alerts_v2(
-        limit=limit,
-        sort="created_timestamp.desc",
-        filter=device_filter,
-    )
-
-    try:
-        status_code = query_resp["status_code"]
-        body = query_resp["body"]
-    except Exception:
-        raise RuntimeError(
-            f"Несподіваний формат відповіді Alerts API: {repr(query_resp)}"
+    for d in raw_detects:
+        normalized.append(
+            {
+                "source": "crowdstrike",
+                "hostname": d.get("hostname"),
+                "timestamp": d.get("timestamp"),
+                "severity": d.get("severity"),
+                "description": d.get("description") or d.get("type") or "",
+                "event_type": d.get("type"),
+                "product": d.get("product"),
+                "raw": d,
+            }
         )
 
-    if status_code != 200:
-        errors = body.get("errors") or []
-        if isinstance(errors, list):
-            msg = ", ".join(e.get("message", "") for e in errors)
-        else:
-            msg = str(errors)
-        raise RuntimeError(f"Alerts API error {status_code}: {msg}")
-
-    alert_ids = body.get("resources") or []
-    if not alert_ids:
-        return []
-
-    alert_ids = alert_ids[:limit]
-
-    # 2. Деталі по composite_ids
-    details_resp = falcon.get_alerts_v2(body={"composite_ids": alert_ids})
-
-    try:
-        det_status = details_resp["status_code"]
-        det_body = details_resp["body"]
-    except Exception:
-        raise RuntimeError(
-            f"Несподіваний формат відповіді get_alerts_v2: {repr(details_resp)}"
-        )
-
-    if det_status != 200:
-        errors = det_body.get("errors") or []
-        if isinstance(errors, list):
-            msg = ", ".join(e.get("message", "") for e in errors)
-        else:
-            msg = str(errors)
-        raise RuntimeError(f"Alert details API error {det_status}: {msg}")
-
-    raw_alerts = det_body.get("resources") or []
-
-    # тут сама уніфікація
-    normalized = [normalize_cs_alert(a) for a in raw_alerts]
     return normalized

@@ -64,6 +64,45 @@
         Поки що немає даних про активи.
     </p>
 
+    {# ===================== ЕПІЗОДИ ПОДІЙ (WAZUH + CROWDSTRIKE) ===================== #}
+    <h2 class="h4 mt-4 mb-2">Епізоди подій (Wazuh + CrowdStrike)</h2>
+
+    <div id="episodes-error" class="alert alert-danger d-none"></div>
+
+    <div id="episodes-loader" class="d-flex align-items-center mb-2">
+        <div class="spinner-border spinner-border-sm me-2" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <span>Агрегація подій по хостам…</span>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm table-hover mb-0 align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width: 40px;"></th>
+                            <th>Hostname</th>
+                            <th style="width: 210px;">Інтервал</th>
+                            <th style="width: 90px;">Тривалість</th>
+                            <th style="width: 120px;">Подій</th>
+                            <th style="width: 120px;">Wazuh / CS</th>
+                            <th style="width: 110px;">Макс. рівень</th>
+                        </tr>
+                    </thead>
+                    <tbody id="episodes-tbody">
+                        <!-- JS сюди додасть епізоди -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <p id="episodes-no-data" class="text-muted mt-2 d-none">
+        Поки що немає зведених епізодів подій.
+    </p>
+
     {# ===================== WAZUH HOSTS ===================== #}
     <h2 class="h4 mt-3 mb-2">Wazuh – агенти</h2>
 
@@ -149,6 +188,17 @@ document.addEventListener("DOMContentLoaded", function () {
             .replace(/>/g, "&gt;");
         text = text.replace(/\r?\n/g, "<br>");
         return text;
+    }
+
+    function formatLocalDateTime(iso) {
+        if (!iso) return "";
+        try {
+            const d = new Date(iso);
+            if (isNaN(d.getTime())) return iso;
+            return d.toLocaleString();
+        } catch (e) {
+            return iso;
+        }
     }
 
     // ===== УНІФІКОВАНІ АКТИВИ: елемент логу (Wazuh / CS / інше) =====
@@ -447,6 +497,144 @@ document.addEventListener("DOMContentLoaded", function () {
             } else {
                 if (!detailsTr.dataset.loaded) {
                     buildUnifiedDetailsContent(detailsContainer, asset);
+                    detailsTr.dataset.loaded = "1";
+                }
+                detailsTr.classList.remove("d-none");
+                toggleBtn.textContent = "▼";
+                toggleBtn.setAttribute("aria-expanded", "true");
+            }
+        });
+
+        frag.appendChild(mainTr);
+        frag.appendChild(detailsTr);
+        return frag;
+    }
+
+    // ===== ЕПІЗОДИ: деталі епізоду =====
+    function buildEpisodeDetailsContent(container, episode) {
+        container.innerHTML = "";
+
+        const metaDiv = document.createElement("div");
+        metaDiv.className = "mb-2 small";
+
+        const host = episode.hostname || "(unknown)";
+        const start = formatLocalDateTime(episode.start_time);
+        const end = formatLocalDateTime(episode.end_time);
+        const dur = Math.round(episode.duration_sec || 0);
+        const nWz = episode.num_events_wazuh || 0;
+        const nCs = episode.num_events_crowdstrike || 0;
+
+        metaDiv.innerHTML =
+            '<div><strong>Hostname:</strong> ' + host + '</div>' +
+            '<div><strong>Інтервал:</strong> ' + start + ' — ' + end + '</div>' +
+            '<div><strong>Тривалість:</strong> ' + dur + ' с</div>' +
+            '<div><strong>Події:</strong> всього ' + (episode.num_events || 0) +
+            ' (Wazuh: ' + nWz + ', CrowdStrike: ' + nCs + ')</div>';
+
+        container.appendChild(metaDiv);
+
+        const title = document.createElement("div");
+        title.className = "fw-bold mb-1";
+        title.textContent = "Події в епізоді";
+        container.appendChild(title);
+
+        if (!episode.events || !episode.events.length) {
+            const span = document.createElement("span");
+            span.className = "text-muted small";
+            span.textContent = "Немає подій у цьому епізоді.";
+            container.appendChild(span);
+            return;
+        }
+
+        const ul = document.createElement("ul");
+        ul.className = "list-unstyled mb-0";
+
+        episode.events.forEach(function (ev) {
+            const logObj = {
+                source: ev.source || "other",
+                raw: ev.raw || ev
+            };
+            ul.appendChild(buildUnifiedLogItem(logObj));
+        });
+
+        container.appendChild(ul);
+    }
+
+    function buildEpisodeRow(episode, index) {
+        const frag = document.createDocumentFragment();
+
+        const mainTr = document.createElement("tr");
+
+        const toggleTd = document.createElement("td");
+        const toggleBtn = document.createElement("button");
+        toggleBtn.type = "button";
+        toggleBtn.className = "btn btn-sm btn-light border-0";
+        toggleBtn.textContent = "▶";
+        toggleBtn.setAttribute("aria-expanded", "false");
+        toggleTd.appendChild(toggleBtn);
+
+        const hostTd = document.createElement("td");
+        hostTd.innerHTML = '<span class="fw-semibold">' +
+            (episode.hostname || "(без імені)") + '</span>';
+
+        const windowTd = document.createElement("td");
+        windowTd.className = "small";
+        windowTd.innerHTML =
+            formatLocalDateTime(episode.start_time) +
+            '<br><span class="text-muted">&rarr; ' +
+            formatLocalDateTime(episode.end_time) + '</span>';
+
+        const durTd = document.createElement("td");
+        durTd.className = "small";
+        durTd.textContent = Math.round(episode.duration_sec || 0) + " с";
+
+        const numTd = document.createElement("td");
+        numTd.className = "small";
+        numTd.textContent = episode.num_events || 0;
+
+        const srcTd = document.createElement("td");
+        srcTd.className = "small";
+        srcTd.textContent =
+            (episode.num_events_wazuh || 0) + " / " +
+            (episode.num_events_crowdstrike || 0);
+
+        const sevTd = document.createElement("td");
+        const sev = episode.max_severity || "";
+        if (sev) {
+            const sevClass = getSeverityBadgeClass(sev);
+            sevTd.innerHTML =
+                '<span class="badge ' + sevClass + ' text-uppercase">' +
+                sev + '</span>';
+        } else {
+            sevTd.innerHTML = '<span class="text-muted small">—</span>';
+        }
+
+        mainTr.appendChild(toggleTd);
+        mainTr.appendChild(hostTd);
+        mainTr.appendChild(windowTd);
+        mainTr.appendChild(durTd);
+        mainTr.appendChild(numTd);
+        mainTr.appendChild(srcTd);
+        mainTr.appendChild(sevTd);
+
+        const detailsTr = document.createElement("tr");
+        detailsTr.className = "d-none unified-details-wrapper";
+        const detailsTd = document.createElement("td");
+        detailsTd.colSpan = 7;
+        const detailsContainer = document.createElement("div");
+        detailsContainer.className = "pt-2 small";
+        detailsTd.appendChild(detailsContainer);
+        detailsTr.appendChild(detailsTd);
+
+        toggleBtn.addEventListener("click", function () {
+            const isOpen = !detailsTr.classList.contains("d-none");
+            if (isOpen) {
+                detailsTr.classList.add("d-none");
+                toggleBtn.textContent = "▶";
+                toggleBtn.setAttribute("aria-expanded", "false");
+            } else {
+                if (!detailsTr.dataset.loaded) {
+                    buildEpisodeDetailsContent(detailsContainer, episode);
                     detailsTr.dataset.loaded = "1";
                 }
                 detailsTr.classList.remove("d-none");
@@ -947,7 +1135,40 @@ document.addEventListener("DOMContentLoaded", function () {
             detectsLoadError = err.message;
             detectsLoaded = true;
         });
+
+    // ===== Епізоди подій (Wazuh + CrowdStrike) =====
+    const episodesLoader = document.getElementById("episodes-loader");
+    const episodesError = document.getElementById("episodes-error");
+    const episodesNoData = document.getElementById("episodes-no-data");
+    const episodesTbody = document.getElementById("episodes-tbody");
+
+    const episodesUrl = "/events/episodes/?window_seconds=90&limit_per_source=200";
+
+    fetch(episodesUrl)
+        .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+        .then(data => {
+            episodesLoader.classList.add("d-none");
+
+            if (!data.success) throw new Error(data.error || "Невідома помилка при отриманні епізодів");
+
+            const episodes = data.episodes || [];
+            if (!episodes.length) {
+                episodesNoData.classList.remove("d-none");
+                return;
+            }
+
+            episodes.forEach(function (ep, index) {
+                episodesTbody.appendChild(buildEpisodeRow(ep, index));
+            });
+        })
+        .catch(err => {
+            episodesLoader.classList.add("d-none");
+            episodesError.textContent = "Помилка при завантаженні епізодів: " + err.message;
+            episodesError.classList.remove("d-none");
+            episodesNoData.classList.remove("d-none");
+        });
 });
 </script>
 
 {% endblock %}
+

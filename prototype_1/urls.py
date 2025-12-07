@@ -1,8 +1,3 @@
-"""URL configuration for prototype_1 project.
-
-The `urlpatterns` list routes URLs to views.
-"""
-
 from django.contrib import admin
 from django.urls import path
 
@@ -19,9 +14,10 @@ from core.views import (
     wazuh_hosts_data,
     wazuh_events_data,
     bert_demo,
-
-
 )
+
+from core.views_episodes import episodes_data
+
 
 urlpatterns = [
     path("admin/", admin.site.urls),
@@ -56,8 +52,11 @@ urlpatterns = [
         name="crowdstrike_detects",
     ),
 
-    path("assets/detections/",asset_detections_data, name="asset_detections"),
+    path("assets/detections/", asset_detections_data, name="asset_detections"),
 
     path("bert/", bert_demo, name="bert_demo"),
 
+    # Епізоди подій (Wazuh + CrowdStrike), згруповані у 90-секундні вікна
+    path("events/episodes/", episodes_data, name="episodes_data"),
 ]
+
