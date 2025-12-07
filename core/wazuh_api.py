@@ -2,6 +2,8 @@
 import os
 import requests
 
+from .log_normalizer import normalize_wazuh_alert  # 👈 додали імпорт нормалізатора
+
 
 class WazuhAPIError(Exception):
     """Помилка при роботі з Wazuh API / Wazuh Indexer."""
@@ -207,7 +209,9 @@ def get_recent_alerts(limit: int = 50) -> list[dict]:
     try:
         data = resp.json()
     except ValueError as exc:
-        raise WazuhAPIError("Не вдалося розпарсити JSON-відповідь Wazuh Indexer (alerts)") from exc
+        raise WazuhAPIError(
+            "Не вдалося розпарсити JSON-відповідь Wazuh Indexer (alerts)"
+        ) from exc
 
     hits = data.get("hits", {}).get("hits", [])
 
@@ -254,7 +258,9 @@ def get_recent_siem_events(limit: int = 50) -> list[dict]:
     try:
         data = resp.json()
     except ValueError as exc:
-        raise WazuhAPIError("Не вдалося розпарсити JSON-відповідь Wazuh Indexer (events)") from exc
+        raise WazuhAPIError(
+            "Не вдалося розпарсити JSON-відповідь Wazuh Indexer (events)"
+        ) from exc
 
     hits = data.get("hits", {}).get("hits", [])
 
@@ -266,3 +272,15 @@ def get_recent_siem_events(limit: int = 50) -> list[dict]:
             src["timestamp"] = ts
         results.append(src)
     return results
+
+
+# ----------------- НОРМАЛІЗОВАНІ ALERT-и ----------------- #
+
+def get_normalized_wazuh_alerts(limit: int = 50) -> list[dict]:
+    """
+    Обгортка над get_recent_alerts, яка повертає уніфіковані події
+    (нормалізовані за допомогою core.log_normalizer.normalize_wazuh_alert).
+    """
+    raw_alerts = get_recent_alerts(limit=limit)
+    return [normalize_wazuh_alert(a) for a in raw_alerts]
+
