@@ -498,4 +498,3 @@ def get_normalized_cs_alerts(limit: int = 200) -> list[dict]:
     # тут сама уніфікація
     normalized = [normalize_cs_alert(a) for a in raw_alerts]
     return normalized
-
