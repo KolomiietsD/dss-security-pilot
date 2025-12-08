@@ -1,3 +1,4 @@
+# urls.py
 from django.contrib import admin
 from django.urls import path
 
@@ -15,8 +16,7 @@ from core.views import (
     wazuh_events_data,
     bert_demo,
 )
-
-from core.views_episodes import episodes_data
+from core.views_episodes import episodes_view, episodes_data
 
 
 urlpatterns = [
@@ -30,33 +30,24 @@ urlpatterns = [
     # Сторінка "Про систему"
     path("about/", about, name="about"),
 
-    # нова сторінка Wazuh
+    # Wazuh
     path("wazuh/", wazuh_view, name="wazuh"),
-
     path("wazuh/hosts/", wazuh_hosts_data, name="wazuh_hosts_data"),
     path("wazuh/events/", wazuh_events_data, name="wazuh_events_data"),
 
-    # Дашборд CrowdStrike (HTML)
+    # CrowdStrike дашборд
     path("crowdstrike/", crowdstrike_view, name="crowdstrike"),
-
-    # JSON з хостами CrowdStrike
     path("crowdstrike/data/", crowdstrike_data, name="crowdstrike_data"),
 
-    # JSON з уніфікованими активами
+    # Уніфіковані активи
     path("assets/data/", assets_data, name="assets_data"),
-
-    # JSON з детекціями (alerts) CrowdStrike
-    path(
-        "crowdstrike/detects/",
-        crowdstrike_detects_data,
-        name="crowdstrike_detects",
-    ),
-
     path("assets/detections/", asset_detections_data, name="asset_detections"),
 
+    # BERT демо / персептрон
     path("bert/", bert_demo, name="bert_demo"),
 
-    # Епізоди подій (Wazuh + CrowdStrike), згруповані у 90-секундні вікна
+    # Епізоди (HTML + JSON)
+    path("episodes/", episodes_view, name="episodes"),
     path("events/episodes/", episodes_data, name="episodes_data"),
 ]
 

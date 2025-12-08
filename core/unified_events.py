@@ -35,6 +35,7 @@ def _parse_ts(ts: str | None) -> datetime | None:
 def _severity_to_score(sev: str | None) -> int:
     """
     Грубе перетворення текстової severity у число для агрегації.
+    0 = unknown/info, 1 = low, 2 = medium, 3 = high, 4 = critical
     """
     if not sev:
         return 0
@@ -47,7 +48,39 @@ def _severity_to_score(sev: str | None) -> int:
         return 2
     if s.startswith("low"):
         return 1
+    # info / informational / unknown
     return 0
+
+
+def _compute_episode_risk(
+    max_severity: str | None,
+    num_events: int,
+    num_wazuh: int,
+    num_crowdstrike: int,
+) -> float:
+    """
+    Оцінка ризику епізоду в діапазоні 0..1.
+
+    Інтуїція:
+      - 60% ваги: максимальна небезпека серед подій (severity)
+      - 30% ваги: кількість подій (чим більше, тим гірше, до 10 подій)
+      - 10% ваги: якщо епізод містить і Wazuh, і CrowdStrike
+    """
+    sev_score = _severity_to_score(max_severity)  # 0..4
+    sev_component = sev_score / 4.0 if sev_score > 0 else 0.0
+
+    volume_component = min(1.0, float(num_events) / 10.0) if num_events > 0 else 0.0
+
+    sources_component = 1.0 if (num_wazuh > 0 and num_crowdstrike > 0) else 0.0
+
+    risk = (
+        0.6 * sev_component
+        + 0.3 * volume_component
+        + 0.1 * sources_component
+    )
+
+    # Округляємо для краси
+    return round(risk, 3)
 
 
 def get_unified_events(limit_per_source: int = 200) -> List[Dict[str, Any]]:
@@ -99,6 +132,9 @@ def group_events_by_time_window(
         "num_events_wazuh": int,
         "num_events_crowdstrike": int,
         "max_severity": str | None,
+        "risk_score": float (0..1),
+        "has_wazuh": bool,
+        "has_crowdstrike": bool,
         "events": [ ...оригінальні події... ],
       }
     """
@@ -145,7 +181,7 @@ def group_events_by_time_window(
         if current_cluster:
             all_episodes.append(_build_episode_dict(hostname, current_cluster))
 
-    # за бажанням — можна ще відсортувати епізоди глобально за start_time
+    # глобально — від найстаршого до найновішого
     all_episodes.sort(key=lambda ep: ep.get("start_time") or "")
     return all_episodes
 
@@ -178,6 +214,14 @@ def _build_episode_dict(
             max_score = sc
             max_sev = sev
 
+    # ризик епізоду 0..1
+    risk_score = _compute_episode_risk(
+        max_severity=max_sev,
+        num_events=num_events,
+        num_wazuh=num_wz,
+        num_crowdstrike=num_cs,
+    )
+
     # прибираємо службове поле перед поверненням
     cleaned_events: List[Dict[str, Any]] = []
     for e in cluster:
@@ -194,5 +238,8 @@ def _build_episode_dict(
         "num_events_wazuh": num_wz,
         "num_events_crowdstrike": num_cs,
         "max_severity": max_sev,
+        "risk_score": risk_score,
+        "has_wazuh": num_wz > 0,
+        "has_crowdstrike": num_cs > 0,
         "events": cleaned_events,
     }

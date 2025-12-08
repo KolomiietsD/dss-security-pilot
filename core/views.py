@@ -1,8 +1,10 @@
+
+
 # core/views.py
 from django.shortcuts import render
 from django.http import JsonResponse
-from .bert_model import analyze_text
 
+from .bert_model import analyze_text
 from .crowdstrike_api import get_recent_devices, get_recent_detects
 from .wazuh_api import (
     get_agents,
@@ -10,8 +12,10 @@ from .wazuh_api import (
     get_recent_alerts,
     get_recent_siem_events,
 )
-
 from .assets_unified import get_unified_assets  # поки лишаємо, може знадобитися деінде
+
+from .unified_events import get_unified_events, group_events_by_time_window
+from .episode_ml import analyze_episodes
 
 from datetime import datetime, timezone
 import json
@@ -120,6 +124,7 @@ def bert_demo(request):
         "error": error,
     }
     return render(request, "bert_demo.html", context)
+
 
 def _hostname_from_cs_log(d: Dict[str, Any]) -> Optional[str]:
     return (
@@ -343,7 +348,7 @@ def _build_unified_assets_with_logs() -> List[Dict[str, Any]]:
         logger.warning("Не вдалося отримати alerts Wazuh: %s", exc)
 
     try:
-        wazuh_events = get_recent_siem_events(limit=200) or []
+        wazuh_events = get_recent_siem_events(limit=200) or []   # noqa: F811
     except (WazuhAPIError, RuntimeError, Exception) as exc:
         logger.warning("Не вдалося отримати SIEM events Wazuh: %s", exc)
 
@@ -466,7 +471,7 @@ def wazuh_view(request):
     except (WazuhAPIError, RuntimeError) as exc:
         error_message = str(exc)
 
-    # Дані для графіків (аналогічно CrowdStrike-дашборду)
+    # Дані для графіків
     charts = {
         "status": {
             "labels": ["Active", "Disconnected", "Never connected", "Unknown"],
@@ -685,3 +690,51 @@ def wazuh_events_data(request):
             json_dumps_params={"ensure_ascii": False},
         )
 
+
+# ======================= ЕПІЗОДИ + ML =======================
+
+def episodes_data(request):
+    """
+    Повертає список епізодів (кластерів подій) без ML-аналізу.
+    """
+    try:
+        events = get_unified_events(limit_per_source=200)
+        episodes = group_events_by_time_window(
+            events,
+            window_seconds=90,
+        )
+        return JsonResponse(
+            {"success": True, "episodes": episodes},
+            json_dumps_params={"ensure_ascii": False},
+        )
+    except Exception as exc:
+        logger.exception("Помилка при побудові епізодів")
+        return JsonResponse(
+            {"success": False, "error": str(exc)},
+            status=500,
+            json_dumps_params={"ensure_ascii": False},
+        )
+
+
+def episodes_analyze_data(request):
+    """
+    Повертає епізоди з cluster_id, risk_score, risk_level.
+    """
+    try:
+        events = get_unified_events(limit_per_source=200)
+        episodes = group_events_by_time_window(
+            events,
+            window_seconds=90,
+        )
+        analyzed = analyze_episodes(episodes, n_clusters=3)
+        return JsonResponse(
+            {"success": True, "episodes": analyzed},
+            json_dumps_params={"ensure_ascii": False},
+        )
+    except Exception as exc:
+        logger.exception("Помилка при ML-аналізі епізодів")
+        return JsonResponse(
+            {"success": False, "error": str(exc)},
+            status=500,
+            json_dumps_params={"ensure_ascii": False},
+        )

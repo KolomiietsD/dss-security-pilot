@@ -1,0 +1,416 @@
+{% extends "base.html" %}
+
+{% block title %}Епізоди подій{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1 class="mb-3">Епізоди подій (Wazuh + CrowdStrike)</h1>
+
+    <p class="text-muted">
+        Події з Wazuh та CrowdStrike згруповані в часові епізоди (вікно ≈ 90 секунд).
+        Епізоди відсортовано за інтегральним ризиком. Натисніть на рядок, щоб побачити,
+        <strong>що саме відбулося в даному часі</strong>.
+    </p>
+
+    <!-- Блок стану завантаження -->
+    <div id="episodes-loading" class="alert alert-info py-2">
+        Завантаження епізодів...
+    </div>
+    <div id="episodes-error" class="alert alert-danger py-2 d-none"></div>
+
+    <!-- Таблиця з епізодами -->
+    <div class="card">
+        <div class="card-header py-2">
+            <strong>Список епізодів</strong>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover table-sm mb-0" id="episodes-table">
+                    <thead class="table-light">
+                        <tr>
+                            <th scope="col">Хост</th>
+                            <th scope="col">Початок</th>
+                            <th scope="col">Кінець</th>
+                            <th scope="col" class="text-end">Тривалість, с</th>
+                            <th scope="col" class="text-end">Подій</th>
+                            <th scope="col" class="text-end">Wazuh</th>
+                            <th scope="col" class="text-end">CrowdStrike</th>
+                            <th scope="col">Макс. рівень</th>
+                            <th scope="col">Ризик</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Заповнюється JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Деталі епізоду -->
+    <div id="episode-details" class="card mt-4 d-none">
+        <div class="card-header py-2 d-flex justify-content-between align-items-center">
+            <strong>Деталі епізоду</strong>
+            <small id="episode-details-header" class="text-muted"></small>
+        </div>
+        <div class="card-body p-3">
+            <!-- Короткий підсумок епізоду -->
+            <div id="episode-summary" class="alert alert-secondary small mb-3 d-none"></div>
+
+            <!-- Список подій епізоду -->
+            <div id="episode-details-content" class="small"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    const loadingEl = document.getElementById("episodes-loading");
+    const errorEl = document.getElementById("episodes-error");
+    const tableBody = document.querySelector("#episodes-table tbody");
+    const detailsCard = document.getElementById("episode-details");
+    const detailsHeader = document.getElementById("episode-details-header");
+    const detailsContent = document.getElementById("episode-details-content");
+    const summaryBox = document.getElementById("episode-summary");
+
+    function formatDate(iso) {
+        if (!iso) return "";
+        try {
+            const d = new Date(iso);
+            return d.toLocaleString();
+        } catch (e) {
+            return iso;
+        }
+    }
+
+    function formatDuration(sec) {
+        if (sec == null) return "";
+        return sec.toFixed(1);
+    }
+
+    function getRiskInfo(score) {
+        if (score == null) score = 0;
+        let label = "Низький";
+        let cls = "bg-success";
+
+        if (score >= 0.75) {
+            label = "Критичний";
+            cls = "bg-danger";
+        } else if (score >= 0.5) {
+            label = "Високий";
+            cls = "bg-warning";
+        } else if (score >= 0.25) {
+            label = "Середній";
+            cls = "bg-primary";
+        }
+
+        return { label, cls };
+    }
+
+    // --- Побудова короткого текстового підсумку епізоду ---
+    function buildEpisodeSummary(ep) {
+        const events = ep.events || [];
+        if (!events.length) {
+            summaryBox.classList.add("d-none");
+            summaryBox.textContent = "";
+            return;
+        }
+
+        const sources = new Set();
+        const types = new Set();
+        const users = new Set();
+        const processes = new Set();
+        const techniques = new Set();
+        const tactics = new Set();
+
+        let highCount = 0;
+        let mediumCount = 0;
+        let lowCount = 0;
+
+        events.forEach(ev => {
+            const src = (ev.source || "").toLowerCase();
+            if (src) sources.add(src);
+
+            const evType = ev.event_type || ev.type || "";
+            if (evType) types.add(evType);
+
+            const user =
+                ev.user_name ||
+                (ev.raw && ev.raw.user_name) ||
+                (ev.raw && ev.raw.raw && ev.raw.raw.user_name) ||
+                "";
+            if (user) users.add(user);
+
+            const proc =
+                ev.process_name ||
+                (ev.raw && ev.raw.process_name) ||
+                (ev.raw && ev.raw.raw && ev.raw.raw.filename) ||
+                "";
+            if (proc) processes.add(proc);
+
+            const raw = ev.raw && ev.raw.raw ? ev.raw.raw : ev.raw;
+
+            if (raw && raw.mitre_attack && Array.isArray(raw.mitre_attack)) {
+                raw.mitre_attack.forEach(m => {
+                    if (m.technique) techniques.add(m.technique);
+                    if (m.tactic) tactics.add(m.tactic);
+                });
+            }
+
+            const sev = (ev.severity || "").toLowerCase();
+            if (sev.startsWith("crit")) highCount++;
+            else if (sev.startsWith("high")) highCount++;
+            else if (sev.startsWith("med")) mediumCount++;
+            else if (sev.startsWith("low")) lowCount++;
+        });
+
+        const parts = [];
+
+        // Кількість подій та джерела
+        parts.push(
+            `Епізод містить ${events.length} подій ` +
+            `(Wazuh: ${ep.num_events_wazuh || 0}, CrowdStrike: ${ep.num_events_crowdstrike || 0}).`
+        );
+
+        if (sources.size) {
+            parts.push(
+                `Джерела: ${Array.from(sources).join(", ")}.`
+            );
+        }
+
+        // Розподіл по рівнях важливості
+        if (highCount || mediumCount || lowCount) {
+            parts.push(
+                `Рівні важливості: ` +
+                `high/critical – ${highCount}, medium – ${mediumCount}, low – ${lowCount}.`
+            );
+        }
+
+        // Типи подій (сценарії / категорії)
+        if (types.size) {
+            parts.push(
+                `Типи подій (сценарії): ${Array.from(types).join(", ")}.`
+            );
+        }
+
+        // MITRE тактики / техніки, якщо є
+        if (tactics.size) {
+            parts.push(
+                `MITRE тактики: ${Array.from(tactics).join(", ")}.`
+            );
+        }
+        if (techniques.size) {
+            parts.push(
+                `MITRE техніки: ${Array.from(techniques).join(", ")}.`
+            );
+        }
+
+        // Користувачі
+        if (users.size) {
+            parts.push(
+                `Задіяні облікові записи: ${Array.from(users).join(", ")}.`
+            );
+        }
+
+        // Процеси
+        if (processes.size) {
+            const procs = Array.from(processes);
+            const short = procs.slice(0, 4); // щоб не було дуже довго
+            parts.push(
+                `Основні процеси: ${short.join(", ")}${procs.length > 4 ? " та інші" : ""}.`
+            );
+        }
+
+        summaryBox.classList.remove("d-none");
+        summaryBox.textContent = parts.join(" ");
+    }
+
+    function onRowClick(ep) {
+        detailsCard.classList.remove("d-none");
+
+        const start = formatDate(ep.start_time);
+        const end = formatDate(ep.end_time);
+        const risk = getRiskInfo(ep.risk_score || 0);
+
+        detailsHeader.textContent =
+            (ep.hostname || "(unknown)") +
+            " | " +
+            start +
+            " – " +
+            end +
+            " | ризик: " +
+            risk.label +
+            " (" + (ep.risk_score || 0).toFixed(2) + ")";
+
+        // Підсумок епізоду
+        buildEpisodeSummary(ep);
+
+        const events = ep.events || [];
+
+        if (!events.length) {
+            detailsContent.innerHTML = "<p class='text-muted mb-0'>Подій в епізоді немає.</p>";
+            return;
+        }
+
+        let html = "";
+        html += "<div class='list-group list-group-flush'>";
+
+        events.forEach(function(ev, idx) {
+            const sev = ev.severity || "";
+            const src = ev.source || "";
+            const ts = formatDate(ev.timestamp || ev.time);
+            const descr = ev.description || ev.message || "";
+            const product = ev.product || "";
+            const evType = ev.event_type || ev.type || "";
+
+            const user =
+                ev.user_name ||
+                (ev.raw && ev.raw.user_name) ||
+                (ev.raw && ev.raw.raw && ev.raw.raw.user_name) ||
+                "";
+
+            const proc =
+                ev.process_name ||
+                (ev.raw && ev.raw.process_name) ||
+                (ev.raw && ev.raw.raw && ev.raw.raw.filename) ||
+                "";
+
+            const remote_ip =
+                (ev.raw && ev.raw.remote_ip) ||
+                (ev.raw && ev.raw.raw && ev.raw.raw.remote_ip) ||
+                null;
+
+            const remote_port =
+                (ev.raw && ev.raw.remote_port) ||
+                (ev.raw && ev.raw.raw && ev.raw.raw.remote_port) ||
+                null;
+
+            html += "<div class='list-group-item py-2'>";
+            html += "<div class='d-flex justify-content-between align-items-center'>";
+
+            html += "<div>";
+            html += "<strong>" + (src.toUpperCase()) + "</strong>";
+            if (product) {
+                html += " <span class='text-muted'>· " + product + "</span>";
+            }
+            if (evType) {
+                html += " <span class='badge bg-light text-muted border ms-1'>" + evType + "</span>";
+            }
+            html += "</div>";
+
+            if (sev) {
+                html += "<span class='badge bg-secondary'>" + sev + "</span>";
+            }
+            html += "</div>";
+
+            html += "<div class='text-muted small'>" + ts + "</div>";
+
+            if (user || proc || remote_ip) {
+                html += "<div class='small mt-1'>";
+                if (user) {
+                    html += "<span class='me-3'><strong>Користувач:</strong> " + user + "</span>";
+                }
+                if (proc) {
+                    html += "<span class='me-3'><strong>Процес:</strong> " + proc + "</span>";
+                }
+                if (remote_ip) {
+                    html += "<span class='me-3'><strong>Remote:</strong> " + remote_ip;
+                    if (remote_port) {
+                        html += ":" + remote_port;
+                    }
+                    html += "</span>";
+                }
+                html += "</div>";
+            }
+
+            if (descr) {
+                html += "<div class='mt-1'>" + descr + "</div>";
+            }
+
+            html += "</div>";
+        });
+
+        html += "</div>";
+        detailsContent.innerHTML = html;
+    }
+
+    function renderEpisodes(episodes) {
+        tableBody.innerHTML = "";
+
+        if (!episodes.length) {
+            const tr = document.createElement("tr");
+            const td = document.createElement("td");
+            td.colSpan = 9;
+            td.className = "text-center text-muted py-3";
+            td.textContent = "Епізодів не знайдено.";
+            tr.appendChild(td);
+            tableBody.appendChild(tr);
+            return;
+        }
+
+        // Сортуємо за risk_score (спадання)
+        episodes.sort(function(a, b) {
+            const sa = a.risk_score || 0;
+            const sb = b.risk_score || 0;
+            return sb - sa;
+        });
+
+        episodes.forEach(function(ep) {
+            const tr = document.createElement("tr");
+            tr.style.cursor = "pointer";
+
+            const risk = getRiskInfo(ep.risk_score || 0);
+
+            tr.innerHTML = `
+                <td>${ep.hostname || "(unknown)"}</td>
+                <td>${formatDate(ep.start_time)}</td>
+                <td>${formatDate(ep.end_time)}</td>
+                <td class="text-end">${formatDuration(ep.duration_sec)}</td>
+                <td class="text-end">${ep.num_events || 0}</td>
+                <td class="text-end">${ep.num_events_wazuh || 0}</td>
+                <td class="text-end">${ep.num_events_crowdstrike || 0}</td>
+                <td>${ep.max_severity || ""}</td>
+                <td>
+                    <span class="badge ${risk.cls}">
+                        ${risk.label}
+                    </span>
+                    <span class="text-muted small ms-1">
+                        ${(ep.risk_score || 0).toFixed(2)}
+                    </span>
+                </td>
+            `;
+
+            tr.addEventListener("click", function() {
+                onRowClick(ep);
+            });
+
+            tableBody.appendChild(tr);
+        });
+    }
+
+    function fetchEpisodes() {
+        fetch("/events/episodes/")
+            .then(function(resp) { return resp.json(); })
+            .then(function(data) {
+                loadingEl.classList.add("d-none");
+
+                if (!data.success) {
+                    errorEl.classList.remove("d-none");
+                    errorEl.textContent = data.error || "Невідома помилка під час завантаження епізодів.";
+                    return;
+                }
+
+                renderEpisodes(data.episodes || []);
+            })
+            .catch(function(err) {
+                loadingEl.classList.add("d-none");
+                errorEl.classList.remove("d-none");
+                errorEl.textContent = "Помилка мережі: " + err;
+            });
+    }
+
+    // Старт
+    fetchEpisodes();
+})();
+</script>
+{% endblock %}
