@@ -25,6 +25,7 @@ urlpatterns = [
     # Головна сторінка
     path("", home, name="home"),
 
+    # Персептрон
     path("perceptron/", perceptron_view, name="perceptron"),
 
     # Сторінка "Про систему"
@@ -38,16 +39,22 @@ urlpatterns = [
     # CrowdStrike дашборд
     path("crowdstrike/", crowdstrike_view, name="crowdstrike"),
     path("crowdstrike/data/", crowdstrike_data, name="crowdstrike_data"),
+    # НОВЕ: глобальний список детектів CrowdStrike
+    path(
+        "crowdstrike/detects/",
+        crowdstrike_detects_data,
+        name="crowdstrike_detects_data",
+    ),
 
     # Уніфіковані активи
     path("assets/data/", assets_data, name="assets_data"),
+    # Детекти по конкретному активу (зазвичай /assets/detections/?hostname=...)
     path("assets/detections/", asset_detections_data, name="asset_detections"),
 
-    # BERT демо / персептрон
+    # BERT демо
     path("bert/", bert_demo, name="bert_demo"),
 
     # Епізоди (HTML + JSON)
     path("episodes/", episodes_view, name="episodes"),
     path("events/episodes/", episodes_data, name="episodes_data"),
 ]
-

@@ -1,5 +1,3 @@
-
-
 # core/views.py
 from django.shortcuts import render
 from django.http import JsonResponse
@@ -299,6 +297,12 @@ def _attach_cs_logs(
 ) -> None:
     """
     Прив'язує CS-логи лише до ВЖЕ ІСНУЮЧИХ активів.
+
+    ВАЖЛИВО:
+    1) Спочатку пробуємо знайти актив по (hostname_norm, ip_norm).
+    2) Якщо не знайдено, але є hostname_norm — пробуємо знайти актив
+       тільки по hostname_norm (ігноруючи IP). Це дозволяє підчепити
+       детекти навіть тоді, коли в детекті немає IP або він відрізняється.
     """
     for d in cs_logs or []:
         raw_hostname = _hostname_from_cs_log(d)
@@ -309,7 +313,20 @@ def _attach_cs_logs(
         key = (hn, ip)
 
         asset = assets.get(key)
+
+        # fallback: шукаємо по одному лише hostname_norm
+        if asset is None and hn is not None:
+            for a in assets.values():
+                try:
+                    a_hn = (a.get("key") or {}).get("hostname_norm")
+                except Exception:
+                    a_hn = None
+                if a_hn == hn:
+                    asset = a
+                    break
+
         if asset is None:
+            # не створюємо новий актив, просто пропускаємо
             continue
 
         asset["sources"]["crowdstrike"] = True
@@ -738,3 +755,4 @@ def episodes_analyze_data(request):
             status=500,
             json_dumps_params={"ensure_ascii": False},
         )
+

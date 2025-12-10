@@ -349,30 +349,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
             // --- CrowdStrike ---
             if (hostname && sources.crowdstrike) {
-                if (!detectsLoaded && !detectsLoadError) {
-                    container.innerHTML =
-                        '<span class="text-muted">Детекти CrowdStrike ще завантажуються… Спробуйте за мить.</span>';
-                    return;
-                }
-                if (detectsLoadError) {
-                    container.innerHTML =
-                        '<span class="text-danger">Помилка при завантаженні детектів: ' +
-                        detectsLoadError + '</span>';
-                    return;
-                }
-
-                const hostDetects = detectsData.filter(function (d) {
-                    const detHostname =
-                        d.hostname ||
-                        d.device_hostname ||
-                        (d.device && d.device.hostname) ||
-                        null;
-                    return detHostname === hostname;
-                });
-
-                hostDetects.forEach(function (d) {
-                    csLogs.push({ source: "crowdstrike", raw: d });
-                });
+                // тут поки не підтягуємо, бо детекти по хосту беремо окремим ендпоінтом у buildCsDetailsContent
             }
         }
 
@@ -904,12 +881,9 @@ document.addEventListener("DOMContentLoaded", function () {
     const unifiedTbody = document.getElementById("unified-assets-tbody");
 
     let assetsData = [];
-    let detectsData = [];
-    let detectsLoaded = false;
-    let detectsLoadError = null;
 
     const assetsUrl = "/assets/data/";
-    const detectsUrl = "/crowdstrike/detects/";
+    const assetDetectionsUrl = "/assets/detections/";
 
     function buildCsDetailsContent(container, asset) {
         container.innerHTML = "";
@@ -957,70 +931,66 @@ document.addEventListener("DOMContentLoaded", function () {
             return;
         }
 
-        if (!detectsLoaded && !detectsLoadError) {
-            msgDiv.innerHTML =
-                '<span class="text-muted">Детекти ще завантажуються… Спробуйте за мить.</span>';
-            return;
-        }
+        msgDiv.innerHTML =
+            '<span class="text-muted">Завантаження детектів CrowdStrike…</span>';
 
-        if (detectsLoadError) {
-            msgDiv.innerHTML =
-                '<span class="text-danger">Помилка при завантаженні детектів: ' +
-                detectsLoadError + '</span>';
-            return;
-        }
+        const url = assetDetectionsUrl + "?hostname=" +
+            encodeURIComponent(asset.hostname || "");
 
-        const hostDetects = detectsData.filter(function (d) {
-            const detHostname =
-                d.hostname ||
-                d.device_hostname ||
-                (d.device && d.device.hostname) ||
-                null;
-            return detHostname === asset.hostname;
-        });
+        fetch(url)
+            .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+            .then(data => {
+                if (!data.success) throw new Error(data.error || "Невідома помилка при отриманні детектів");
+                const hostDetects = data.detections || data.detects || [];
 
-        if (!hostDetects.length) {
-            msgDiv.innerHTML =
-                '<span class="text-muted">Для цього хоста детектів не знайдено.</span>';
-            return;
-        }
+                if (!hostDetects.length) {
+                    msgDiv.innerHTML =
+                        '<span class="text-muted">Для цього хоста детектів не знайдено.</span>';
+                    return;
+                }
 
-        msgDiv.innerHTML = "";
+                msgDiv.innerHTML = "";
 
-        hostDetects.forEach(function (d) {
-            const li = document.createElement("li");
-            li.className = "mb-2 p-2 border rounded";
+                hostDetects.forEach(function (d) {
+                    const li = document.createElement("li");
+                    li.className = "mb-2 p-2 border rounded";
 
-            const sev = d.severity || "unknown";
-            const sevClass = getSeverityBadgeClass(sev);
-            const tactic = d.tactic || "";
-            const technique = d.technique || "";
-            const time = d.start_time || d.timestamp || "";
-            const status = d.status || "";
-            const id = d.id || d.detect_id || "";
-            const titleText = d.title || d.name || "";
-            const policy = d.policy_name || d.rule_name || "";
-            const typeText = d.type || d.alert_type || d.event_type || "";
-            const desc = d.description || d.summary || "";
+                    const sev = d.severity || "unknown";
+                    const sevClass = getSeverityBadgeClass(sev);
+                    const tactic = d.tactic || "";
+                    const technique = d.technique || "";
+                    const time = d.start_time || d.timestamp || "";
+                    const status = d.status || "";
+                    const id = d.id || d.detect_id || "";
+                    const titleText = d.title || d.name || "";
+                    const policy = d.policy_name || d.rule_name || "";
+                    const typeText = d.type || d.alert_type || d.event_type || "";
+                    const desc = d.description || d.summary || "";
 
-            let inner = "";
-            inner += '<div class="d-flex justify-content-between align-items-start">';
-            inner += '  <div>';
-            inner += '    <span class="badge ' + sevClass + ' me-1 text-uppercase">' + sev + '</span>';
-            if (status) inner += '    <span class="text-muted small">' + status + '</span>';
-            if (titleText) inner += '    <div class="fw-semibold">' + titleText + '</div>';
-            if (typeText) inner += '    <div class="small">Тип: <span class="text-muted">' + typeText + '</span></div>';
-            if (tactic || technique) inner += '    <div class="small text-muted">' + tactic + ' ' + technique + '</div>';
-            if (policy) inner += '    <div class="small text-muted">Policy: ' + policy + '</div>';
-            if (desc) inner += '    <div class="small mt-1">' + desc + '</div>';
-            inner += '  </div>';
-            if (time) inner += '  <div class="text-end small text-muted ms-2">' + time + '</div>';
-            inner += '</div>';
-            if (id) inner += '<div class="small text-muted mt-1">ID: ' + id + '</div>';
+                    let inner = "";
+                    inner += '<div class="d-flex justify-content-between align-items-start">';
+                    inner += '  <div>';
+                    inner += '    <span class="badge ' + sevClass + ' me-1 text-uppercase">' + sev + '</span>';
+                    if (status) inner += '    <span class="text-muted small">' + status + '</span>';
+                    if (titleText) inner += '    <div class="fw-semibold">' + titleText + '</div>';
+                    if (typeText) inner += '    <div class="small">Тип: <span class="text-muted">' + typeText + '</span></div>';
+                    if (tactic || technique) inner += '    <div class="small text-muted">' + tactic + ' ' + technique + '</div>';
+                    if (policy) inner += '    <div class="small text-muted">Policy: ' + policy + '</div>';
+                    if (desc) inner += '    <div class="small mt-1">' + desc + '</div>';
+                    inner += '  </div>';
+                    if (time) inner += '  <div class="text-end small text-muted ms-2">' + time + '</div>';
+                    inner += '</div>';
+                    if (id) inner += '<div class="small text-muted mt-1">ID: ' + id + '</div>';
 
-            li.innerHTML = inner;
-            ul.appendChild(li);
-        });
+                    li.innerHTML = inner;
+                    ul.appendChild(li);
+                });
+            })
+            .catch(err => {
+                msgDiv.innerHTML =
+                    '<span class="text-danger">Помилка при завантаженні детектів: ' +
+                    err.message + '</span>';
+            });
     }
 
     function createAssetRow(asset, index) {
@@ -1123,19 +1093,6 @@ document.addEventListener("DOMContentLoaded", function () {
             csNoDataMsg.classList.remove("d-none");
         });
 
-    // CrowdStrike детекти (для акордеонів)
-    fetch(detectsUrl)
-        .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
-        .then(data => {
-            if (!data.success) throw new Error(data.error || "Невідома помилка при отриманні детектів");
-            detectsData = data.detects || [];
-            detectsLoaded = true;
-        })
-        .catch(err => {
-            detectsLoadError = err.message;
-            detectsLoaded = true;
-        });
-
     // ===== Епізоди подій (Wazuh + CrowdStrike) =====
     const episodesLoader = document.getElementById("episodes-loader");
     const episodesError = document.getElementById("episodes-error");
@@ -1165,10 +1122,11 @@ document.addEventListener("DOMContentLoaded", function () {
             episodesLoader.classList.add("d-none");
             episodesError.textContent = "Помилка при завантаженні епізодів: " + err.message;
             episodesError.classList.remove("d-none");
-            episodesNoData.classList.remove("d-none");
+            episodesNoData.classList.remove("д-none");
         });
 });
 </script>
 
 {% endblock %}
+
 
