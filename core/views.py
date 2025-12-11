@@ -2,6 +2,8 @@
 from django.shortcuts import render
 from django.http import JsonResponse
 
+from .episode_ml import analyze_episodes
+from .episode_nlp import enrich_episodes_with_bert  # BERT над епізодами
 from .bert_model import analyze_text
 from .crowdstrike_api import get_recent_devices, get_recent_detects
 from .wazuh_api import (
@@ -11,9 +13,7 @@ from .wazuh_api import (
     get_recent_siem_events,
 )
 from .assets_unified import get_unified_assets  # поки лишаємо, може знадобитися деінде
-
 from .unified_events import get_unified_events, group_events_by_time_window
-from .episode_ml import analyze_episodes
 
 from datetime import datetime, timezone
 import json
@@ -121,7 +121,8 @@ def bert_demo(request):
         "result": result,
         "error": error,
     }
-    return render(request, "bert_demo.html", context)
+    # шаблон лежить у templates/core/bert_demo.html
+    return render(request, "core/bert_demo.html", context)
 
 
 def _hostname_from_cs_log(d: Dict[str, Any]) -> Optional[str]:
@@ -301,8 +302,7 @@ def _attach_cs_logs(
     ВАЖЛИВО:
     1) Спочатку пробуємо знайти актив по (hostname_norm, ip_norm).
     2) Якщо не знайдено, але є hostname_norm — пробуємо знайти актив
-       тільки по hostname_norm (ігноруючи IP). Це дозволяє підчепити
-       детекти навіть тоді, коли в детекті немає IP або він відрізняється.
+       тільки по hostname_norm (ігноруючи IP).
     """
     for d in cs_logs or []:
         raw_hostname = _hostname_from_cs_log(d)
@@ -708,24 +708,50 @@ def wazuh_events_data(request):
         )
 
 
-# ======================= ЕПІЗОДИ + ML =======================
+# ======================= ЕПІЗОДИ + ML/NLP =======================
 
 def episodes_data(request):
     """
-    Повертає список епізодів (кластерів подій) без ML-аналізу.
+    Повертає список епізодів (кластерів подій) з:
+      - cluster_id (k-means / ML)
+      - risk_score, risk_level (евристики + ML)
+      - bert_label, bert_score, bert_sentiment (оцінка BERT текстів подій)
+    Ендпоінт: /events/episodes/
     """
+    # Параметри з запиту (опціонально, щоб було гнучко)
     try:
-        events = get_unified_events(limit_per_source=200)
+        window_seconds = int(request.GET.get("window_seconds", 90))
+    except ValueError:
+        window_seconds = 90
+
+    try:
+        limit_per_source = int(request.GET.get("limit_per_source", 200))
+    except ValueError:
+        limit_per_source = 200
+
+    try:
+        # 1) тягнемо уніфіковані події
+        events = get_unified_events(limit_per_source=limit_per_source)
+
+        # 2) групуємо у часові епізоди
         episodes = group_events_by_time_window(
             events,
-            window_seconds=90,
+            window_seconds=window_seconds,
         )
+
+        # 3) рахуємо ML-ризик / кластери
+        analyzed = analyze_episodes(episodes, n_clusters=3)
+
+        # 4) додаємо BERT-оцінку (по текстах подій епізоду)
+        enriched = enrich_episodes_with_bert(analyzed)
+
         return JsonResponse(
-            {"success": True, "episodes": episodes},
+            {"success": True, "episodes": enriched},
             json_dumps_params={"ensure_ascii": False},
         )
+
     except Exception as exc:
-        logger.exception("Помилка при побудові епізодів")
+        logger.exception("Помилка при ML/NLP-аналізі епізодів")
         return JsonResponse(
             {"success": False, "error": str(exc)},
             status=500,
@@ -735,24 +761,8 @@ def episodes_data(request):
 
 def episodes_analyze_data(request):
     """
-    Повертає епізоди з cluster_id, risk_score, risk_level.
+    Сумісний ендпоінт, зараз просто делегує в episodes_data.
+    Якщо десь у коді/шаблонах ще є посилання на /episodes/analyze/,
+    воно отримає ті самі дані.
     """
-    try:
-        events = get_unified_events(limit_per_source=200)
-        episodes = group_events_by_time_window(
-            events,
-            window_seconds=90,
-        )
-        analyzed = analyze_episodes(episodes, n_clusters=3)
-        return JsonResponse(
-            {"success": True, "episodes": analyzed},
-            json_dumps_params={"ensure_ascii": False},
-        )
-    except Exception as exc:
-        logger.exception("Помилка при ML-аналізі епізодів")
-        return JsonResponse(
-            {"success": False, "error": str(exc)},
-            status=500,
-            json_dumps_params={"ensure_ascii": False},
-        )
-
+    return episodes_data(request)

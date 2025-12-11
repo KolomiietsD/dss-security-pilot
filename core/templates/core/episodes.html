@@ -7,73 +7,18 @@
     <h1 class="mb-3">Епізоди подій (Wazuh + CrowdStrike)</h1>
 
     <p class="text-muted">
-        Події з Wazuh та CrowdStrike згруповані в часові епізоди. Епізоди відсортовано за
-        інтегральним ML-ризиком. Натисніть на рядок, щоб побачити,
-        <strong>що саме відбулося в даному часі</strong>.
+        Події з Wazuh та CrowdStrike згруповані в часові епізоди (вікно ≈ 90 секунд).
+        Епізоди відсортовано за ML-ризиком. Натисніть на рядок, щоб побачити
+        <strong>деталі подій та оцінку BERT</strong>.
     </p>
 
-    <!-- Панель фільтрів -->
-    <div class="card mb-3">
-        <div class="card-body py-2">
-            <form class="row g-2 align-items-end" id="episodes-filters">
-                <div class="col-auto">
-                    <label for="window-select" class="form-label mb-0 small text-muted">
-                        Вікно епізоду
-                    </label>
-                    <select id="window-select" class="form-select form-select-sm">
-                        <option value="30">30 сек</option>
-                        <option value="60" selected>60 сек</option>
-                        <option value="90">90 сек</option>
-                        <option value="120">120 сек</option>
-                        <option value="300">300 сек</option>
-                    </select>
-                </div>
-
-                <div class="col-auto">
-                    <label for="limit-select" class="form-label mb-0 small text-muted">
-                        Глибина подій на джерело
-                    </label>
-                    <select id="limit-select" class="form-select form-select-sm">
-                        <option value="20">20</option>
-                        <option value="50" selected>50</option>
-                        <option value="100">100</option>
-                        <option value="200">200</option>
-                        <option value="500">500</option>
-                    </select>
-                </div>
-
-                <div class="col-auto">
-                    <label for="host-input" class="form-label mb-0 small text-muted">
-                        Хост (hostname)
-                    </label>
-                    <input
-                        type="text"
-                        id="host-input"
-                        class="form-control form-control-sm"
-                        placeholder="SOE-1C, TOP-DEVOPS..."
-                    >
-                </div>
-
-                <div class="col-auto mt-3 mt-sm-0">
-                    <button type="button" id="episodes-refresh" class="btn btn-sm btn-primary">
-                        Оновити
-                    </button>
-                </div>
-
-                <div class="col-auto mt-3 mt-sm-0">
-                    <span id="episodes-meta" class="small text-muted"></span>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <!-- Блок стану завантаження -->
-    <div id="episodes-loading" class="alert alert-info py-2 d-none">
+    <!-- Статус завантаження -->
+    <div id="episodes-loading" class="alert alert-info py-2">
         Завантаження епізодів...
     </div>
     <div id="episodes-error" class="alert alert-danger py-2 d-none"></div>
 
-    <!-- Таблиця з епізодами -->
+    <!-- Таблиця епізодів -->
     <div class="card">
         <div class="card-header py-2">
             <strong>Список епізодів</strong>
@@ -91,12 +36,12 @@
                             <th scope="col" class="text-end">Wazuh</th>
                             <th scope="col" class="text-end">CrowdStrike</th>
                             <th scope="col">Макс. рівень</th>
-                            <th scope="col">Рівень ризику (ML)</th>
-                            <th scope="col" class="text-end">Кластер</th>
+                            <th scope="col">Ризик (ML)</th>
+                            <th scope="col">BERT</th>
                         </tr>
                     </thead>
                     <tbody>
-                        <!-- Заповнюється JavaScript -->
+                        <!-- JS -->
                     </tbody>
                 </table>
             </div>
@@ -113,7 +58,7 @@
             <!-- Короткий підсумок епізоду -->
             <div id="episode-summary" class="alert alert-secondary small mb-3 d-none"></div>
 
-            <!-- Список подій епізоду -->
+            <!-- Список подій -->
             <div id="episode-details-content" class="small"></div>
         </div>
     </div>
@@ -128,24 +73,6 @@
     const detailsHeader = document.getElementById("episode-details-header");
     const detailsContent = document.getElementById("episode-details-content");
     const summaryBox = document.getElementById("episode-summary");
-    const windowSelect = document.getElementById("window-select");
-    const limitSelect = document.getElementById("limit-select");
-    const hostInput = document.getElementById("host-input");
-    const refreshBtn = document.getElementById("episodes-refresh");
-    const metaEl = document.getElementById("episodes-meta");
-
-    // Якщо в контексті є initial_host_filter – підставляємо
-    const initialHost = "{{ initial_host_filter|default_if_none:'' }}".trim();
-    if (initialHost) {
-        hostInput.value = initialHost;
-    } else {
-        // Дублюємо на випадок, якщо прийшло через URL без контексту
-        const params = new URLSearchParams(window.location.search);
-        const hostFromUrl = params.get("host");
-        if (hostFromUrl) {
-            hostInput.value = hostFromUrl;
-        }
-    }
 
     function formatDate(iso) {
         if (!iso) return "";
@@ -162,26 +89,36 @@
         return sec.toFixed(1);
     }
 
-    function getMlRiskInfo(ep) {
-        const levelRaw = (ep.risk_level || "").toLowerCase();
-        const score = typeof ep.risk_score === "number" ? ep.risk_score : 0;
-
-        let label = "Low";
+    function getRiskInfo(score) {
+        if (score == null) score = 0;
+        let label = "Низький";
         let cls = "bg-success";
 
-        if (levelRaw === "high") {
-            label = "High";
+        if (score >= 0.75) {
+            label = "Критичний";
             cls = "bg-danger";
-        } else if (levelRaw === "medium") {
-            label = "Medium";
+        } else if (score >= 0.5) {
+            label = "Високий";
             cls = "bg-warning";
+        } else if (score >= 0.25) {
+            label = "Середній";
+            cls = "bg-primary";
         }
 
-        return {
-            label,
-            cls,
-            scoreText: score.toFixed(3),
-        };
+        return { label, cls };
+    }
+
+    function mapBertLabelToText(label) {
+        // для nlptown/bert-base-multilingual-uncased-sentiment:
+        // "1 star" .. "5 stars"
+        if (!label) return "—";
+        const l = label.toString().toLowerCase();
+        if (l.startsWith("1")) return "дуже негативний";
+        if (l.startsWith("2")) return "негативний";
+        if (l.startsWith("3")) return "нейтральний";
+        if (l.startsWith("4")) return "позитивний";
+        if (l.startsWith("5")) return "дуже позитивний";
+        return label;
     }
 
     // --- Побудова короткого текстового підсумку епізоду ---
@@ -243,25 +180,28 @@
 
         const parts = [];
 
+        // Кількість подій та джерела
         parts.push(
-            `Епізод містить ${events.length} подій ` +
-            `(Wazuh: ${ep.num_events_wazuh || 0}, CrowdStrike: ${ep.num_events_crowdstrike || 0}).`
+            `Епізод містить ${events.length} подій (Wazuh: ${ep.num_events_wazuh || 0}, CrowdStrike: ${ep.num_events_crowdstrike || 0}).`
         );
 
         if (sources.size) {
             parts.push(`Джерела: ${Array.from(sources).join(", ")}.`);
         }
 
+        // Розподіл по рівнях важливості
         if (highCount || mediumCount || lowCount) {
             parts.push(
                 `Рівні важливості: high/critical – ${highCount}, medium – ${mediumCount}, low – ${lowCount}.`
             );
         }
 
+        // Типи подій
         if (types.size) {
             parts.push(`Типи подій (сценарії): ${Array.from(types).join(", ")}.`);
         }
 
+        // MITRE
         if (tactics.size) {
             parts.push(`MITRE тактики: ${Array.from(tactics).join(", ")}.`);
         }
@@ -269,16 +209,31 @@
             parts.push(`MITRE техніки: ${Array.from(techniques).join(", ")}.`);
         }
 
+        // Користувачі
         if (users.size) {
             parts.push(`Задіяні облікові записи: ${Array.from(users).join(", ")}.`);
         }
 
+        // Процеси
         if (processes.size) {
             const procs = Array.from(processes);
             const short = procs.slice(0, 4);
             parts.push(
                 `Основні процеси: ${short.join(", ")}${procs.length > 4 ? " та інші" : ""}.`
             );
+        }
+
+        // Додаємо коротку згадку про BERT, якщо є
+        if (ep.bert_label) {
+            const sText = mapBertLabelToText(ep.bert_label);
+            const prob = ep.bert_score != null ? ep.bert_score.toFixed(2) : null;
+            let bertPart = `Оцінка BERT: ${sText}`;
+            if (prob !== null) {
+                bertPart += ` (ймовірність ${prob}).`;
+            } else {
+                bertPart += ".";
+            }
+            parts.push(bertPart);
         }
 
         summaryBox.classList.remove("d-none");
@@ -290,16 +245,30 @@
 
         const start = formatDate(ep.start_time);
         const end = formatDate(ep.end_time);
-        const ml = getMlRiskInfo(ep);
+        const risk = getRiskInfo(ep.risk_score || 0);
 
-        detailsHeader.textContent =
+        let headerText =
             (ep.hostname || "(unknown)") +
             " | " +
             start +
             " – " +
             end +
-            ` | ML-ризик: ${ml.label} (${ml.scoreText}), кластер ${ep.cluster_id ?? "-"} `;
+            " | ризик: " +
+            risk.label +
+            " (" +
+            (ep.risk_score || 0).toFixed(2) +
+            ")";
 
+        if (ep.bert_label) {
+            headerText +=
+                " | BERT: " +
+                mapBertLabelToText(ep.bert_label) +
+                (ep.bert_score != null ? ` (${ep.bert_score.toFixed(2)})` : "");
+        }
+
+        detailsHeader.textContent = headerText;
+
+        // Підсумок епізоду
         buildEpisodeSummary(ep);
 
         const events = ep.events || [];
@@ -309,9 +278,10 @@
             return;
         }
 
-        let html = "<div class='list-group list-group-flush'>";
+        let html = "";
+        html += "<div class='list-group list-group-flush'>";
 
-        events.forEach(ev => {
+        events.forEach(function(ev) {
             const sev = ev.severity || "";
             const src = ev.source || "";
             const ts = formatDate(ev.timestamp || ev.time);
@@ -345,15 +315,12 @@
             html += "<div class='d-flex justify-content-between align-items-center'>";
 
             html += "<div>";
-            html += "<strong>" + src.toUpperCase() + "</strong>";
+            html += "<strong>" + (src.toUpperCase()) + "</strong>";
             if (product) {
                 html += " <span class='text-muted'>· " + product + "</span>";
             }
             if (evType) {
-                html +=
-                    " <span class='badge bg-light text-muted border ms-1'>" +
-                    evType +
-                    "</span>";
+                html += " <span class='badge bg-light text-muted border ms-1'>" + evType + "</span>";
             }
             html += "</div>";
 
@@ -407,14 +374,22 @@
             return;
         }
 
-        // Сортуємо за ML risk_score (спадання)
-        episodes.sort((a, b) => (b.risk_score || 0) - (a.risk_score || 0));
+        // Сортуємо за risk_score (спадання)
+        episodes.sort(function(a, b) {
+            const sa = a.risk_score || 0;
+            const sb = b.risk_score || 0;
+            return sb - sa;
+        });
 
-        episodes.forEach(ep => {
+        episodes.forEach(function(ep) {
             const tr = document.createElement("tr");
             tr.style.cursor = "pointer";
 
-            const ml = getMlRiskInfo(ep);
+            const risk = getRiskInfo(ep.risk_score || 0);
+
+            const bertLabelText = mapBertLabelToText(ep.bert_label);
+            const bertScoreText =
+                ep.bert_score != null ? ep.bert_score.toFixed(2) : null;
 
             tr.innerHTML = `
                 <td>${ep.hostname || "(unknown)"}</td>
@@ -426,65 +401,39 @@
                 <td class="text-end">${ep.num_events_crowdstrike || 0}</td>
                 <td>${ep.max_severity || ""}</td>
                 <td>
-                    <span class="badge ${ml.cls}">
-                        ${ml.label}
+                    <span class="badge ${risk.cls}">
+                        ${risk.label}
                     </span>
                     <span class="text-muted small ms-1">
-                        ${ml.scoreText}
+                        ${(ep.risk_score || 0).toFixed(2)}
                     </span>
                 </td>
-                <td class="text-end">
-                    ${ep.cluster_id != null ? ep.cluster_id : "-"}
+                <td>
+                    ${
+                        ep.bert_label
+                            ? `<span class="badge bg-light text-dark border">${bertLabelText}</span>
+                               ${
+                                   bertScoreText
+                                       ? `<span class="text-muted small ms-1">${bertScoreText}</span>`
+                                       : ""
+                               }`
+                            : '<span class="text-muted small">—</span>'
+                    }
                 </td>
             `;
 
-            tr.addEventListener("click", () => onRowClick(ep));
+            tr.addEventListener("click", function() {
+                onRowClick(ep);
+            });
+
             tableBody.appendChild(tr);
         });
     }
 
-    function updateMeta(meta) {
-        if (!meta) {
-            metaEl.textContent = "";
-            return;
-        }
-        const parts = [];
-        if (meta.window_seconds != null) {
-            parts.push(`Вікно: ${meta.window_seconds} с`);
-        }
-        if (meta.limit_per_source != null) {
-            parts.push(`Глибина: ${meta.limit_per_source} подій/джерело`);
-        }
-        if (meta.episodes_count != null) {
-            parts.push(`Епізодів: ${meta.episodes_count}`);
-        }
-        if (meta.host) {
-            parts.push(`Хост: ${meta.host}`);
-            // Якщо бекенд підтвердив хост, але в input інше / порожнє – синхронізуємо
-            if (!hostInput.value.trim()) {
-                hostInput.value = meta.host;
-            }
-        }
-        metaEl.textContent = parts.join(" · ");
-    }
-
     function fetchEpisodes() {
-        const windowSec = parseInt(windowSelect.value, 10) || 60;
-        const limit = parseInt(limitSelect.value, 10) || 50;
-        const hostVal = hostInput.value.trim();
-
-        loadingEl.classList.remove("d-none");
-        errorEl.classList.add("d-none");
-
-        const baseUrl = "{% url 'episodes_data' %}";
-        let url = `${baseUrl}?window=${encodeURIComponent(windowSec)}&limit=${encodeURIComponent(limit)}`;
-        if (hostVal) {
-            url += `&host=${encodeURIComponent(hostVal)}`;
-        }
-
-        fetch(url)
-            .then(resp => resp.json())
-            .then(data => {
+        fetch("/events/episodes/?window_seconds=90&limit_per_source=200")
+            .then(function(resp) { return resp.json(); })
+            .then(function(data) {
                 loadingEl.classList.add("d-none");
 
                 if (!data.success) {
@@ -493,26 +442,19 @@
                     return;
                 }
 
-                updateMeta(data.meta || null);
                 renderEpisodes(data.episodes || []);
             })
-            .catch(err => {
+            .catch(function(err) {
                 loadingEl.classList.add("d-none");
                 errorEl.classList.remove("d-none");
                 errorEl.textContent = "Помилка мережі: " + err;
             });
     }
 
-    // Події UI
-    refreshBtn.addEventListener("click", () => {
-        fetchEpisodes();
-    });
-
-    // Стартове завантаження
+    // Старт
     fetchEpisodes();
 })();
 </script>
-
 {% endblock %}
 
 

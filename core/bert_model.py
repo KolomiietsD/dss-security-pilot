@@ -1,44 +1,132 @@
 # core/bert_model.py
-from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
+"""
+Легкий "BERT-замінник" без HuggingFace, щоб не падати через важкі моделі.
 
-# Модель на базі BERT, яка вміє робити мультимовний sentiment-analysis
-MODEL_NAME = "nlptown/bert-base-multilingual-uncased-sentiment"
+Ми зберігаємо той самий інтерфейс:
+    analyze_text(text) -> dict або None
 
-# Завантажуємо один раз при імпорті модуля
-_tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-_model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME)
+Повертаємо структуру:
+{
+    "label": "benign" | "suspicious" | "attack" | "unknown",
+    "label_en": "...",
+    "score": float  # 0..1
+}
+"""
 
-_bert_sentiment = pipeline(
-    "sentiment-analysis",
-    model=_model,
-    tokenizer=_tokenizer,
-)
+from __future__ import annotations
+
+from typing import Optional, Dict
+import re
 
 
-def analyze_text(text: str):
+# Прості списки ключових слів для евристики
+ATTACK_KEYWORDS = [
+    r"mimikatz",
+    r"ransomware",
+    r"crypto[- ]?locker",
+    r"cobalt strike",
+    r"meterpreter",
+    r"powershell",
+    r"invoke-mimikatz",
+    r"credential theft",
+    r"lsass",
+    r"dump lsass",
+    r"brute force",
+    r"bruteforce",
+    r"sql injection",
+    r"sql-injection",
+    r"reverse shell",
+    r"reverse-shell",
+    r"command and control",
+    r"c2 channel",
+]
+
+SUSPICIOUS_KEYWORDS = [
+    r"failed logon",
+    r"failed login",
+    r"multiple logon failures",
+    r"multiple login failures",
+    r"privilege escalation",
+    r"privilege-escalation",
+    r"lateral movement",
+    r"unusual process",
+    r"suspicious process",
+    r"suspicious command",
+    r"remote desktop",
+    r"rdp connection",
+    r"rdp brute force",
+    r"admin share",
+    r"psexec",
+    r"wmic",
+    r"wmi",
+]
+
+BENIGN_KEYWORDS = [
+    r"windows logon",
+    r"windows login",
+    r"user logon",
+    r"user login",
+    r"service started",
+    r"service stopped",
+    r"scheduled task created",
+    r"group policy",
+    r"software update",
+    r"antivirus update",
+    r"system reboot",
+]
+
+
+def _match_any(patterns, text_lower: str) -> bool:
+    for p in patterns:
+        if re.search(p, text_lower):
+            return True
+    return False
+
+
+def analyze_text(text: str) -> Optional[Dict[str, object]]:
     """
-    Повертає результат роботи BERT:
-    {
-        "label": "1 star" ... "5 stars",
-        "score": 0.987
-    }
+    Легка евристична "оцінка" тексту події / епізоду.
+
+    Повертає:
+        {
+            "label": "benign" | "suspicious" | "attack" | "unknown",
+            "label_en": <людський опис англійською>,
+            "score": float в [0,1] (наскільки впевнені)
+        }
     або None, якщо текст порожній.
     """
     if not text or not text.strip():
         return None
 
-    # Зайве довгий текст ріжемо, щоб не було проблем з довжиною
-    text = text.strip()
-    if len(text) > 512:
-        text = text[:512]
+    t = text.strip().lower()
 
-    result = _bert_sentiment(text)[0]
+    # 1) Явні ознаки атаки
+    if _match_any(ATTACK_KEYWORDS, t):
+        return {
+            "label": "attack",
+            "label_en": "Clear signs of attack / malware activity",
+            "score": 0.9,
+        }
 
-    # Приведемо до більш зручного формату
-    label = result["label"]          # типу "4 stars"
-    score = float(result["score"])   # ймовірність
+    # 2) Підозріла активність
+    if _match_any(SUSPICIOUS_KEYWORDS, t):
+        return {
+            "label": "suspicious",
+            "label_en": "Suspicious security-related activity",
+            "score": 0.7,
+        }
 
+    # 3) Схоже на нешкідливу системну активність
+    if _match_any(BENIGN_KEYWORDS, t):
+        return {
+            "label": "benign",
+            "label_en": "Likely benign system activity",
+            "score": 0.6,
+        }
+
+    # 4) За замовчуванням
     return {
-        "label": label,
-        "score": score,
+        "label": "unknown",
+        "label_en": "No clear security semantics detected",
+        "score": 0.5,
     }
