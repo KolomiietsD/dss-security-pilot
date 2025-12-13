@@ -9,7 +9,7 @@
     <div class="mb-4">
         <h1 class="mb-1">Про систему</h1>
         <p class="text-muted mb-0">
-            Information Security DSS — навчальний проєкт для підтримки рішень у сфері кібербезпеки.
+            Information Security DSS — навчальний прототип системи підтримки рішень (Decision Support System) для SOC / інформаційної безпеки.
         </p>
     </div>
 
@@ -18,32 +18,73 @@
         <div class="card-body">
             <h5 class="card-title mb-3">Що це за проєкт?</h5>
             <p class="card-text">
-                Ця система розробляється як <strong>Decision Support System (DSS)</strong> для фахівців
-                з інформаційної безпеки. Вона допомагає аналізувати події безпеки, ризики та стан
-                інфраструктури, комбінуючи дані з різних джерел.
+                Система збирає дані з декількох джерел (Wazuh та CrowdStrike), уніфікує їх у спільну структуру та відображає на дашбордах.
+                Далі поверх цих даних запускається інтелектуальний модуль, який:
+                <strong>групує події у часові епізоди</strong>, <strong>оцінює ризик</strong> і <strong>формує пріоритет хостів</strong>.
             </p>
             <p class="card-text mb-0">
-                Основна ідея — надати зручний інтерфейс, де можна побачити:
-                агреговану інформацію по хостах, детекти з CrowdStrike,
-                а в майбутньому — результати роботи моделей машинного навчання.
+                Важливо: система <strong>не замінює аналітика</strong>. Її задача — зменшити шум, прискорити триаж (triage) та допомогти
+                швидко знайти критичні вузли/епізоди, які потребують уваги.
             </p>
         </div>
     </div>
 
-    <!-- Блоки з основними компонентами -->
+    <!-- Архітектура / пайплайн -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5 class="card-title mb-3">Як працює система (пайплайн)</h5>
+
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <div class="border rounded p-3 h-100">
+                        <h6 class="mb-2">1) Збір та уніфікація даних</h6>
+                        <ul class="mb-0">
+                            <li><strong>Wazuh</strong>: агенти, alerts, SIEM events (логи з хостів)</li>
+                            <li><strong>CrowdStrike</strong>: хости, детекти (endpoint security)</li>
+                            <li>Нормалізація ключів: hostname/IP, приведення полів до єдиного формату</li>
+                            <li>Формування списку <strong>assets</strong> (активів) і списку <strong>events</strong> (подій)</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="border rounded p-3 h-100">
+                        <h6 class="mb-2">2) Епізоди та аналітика</h6>
+                        <ul class="mb-0">
+                            <li>Групування подій у <strong>епізоди</strong> по часовому вікну (≈ 90 секунд)</li>
+                            <li>Розрахунок <strong>ознакового вектора</strong> епізоду (кількість подій, severity, різноманіття, джерела тощо)</li>
+                            <li>Кластеризація <strong>K-Means</strong> та розрахунок <strong>ML risk_score</strong></li>
+                            <li>Семантична оцінка епізоду/подій модулем <strong>BERT/NLP</strong></li>
+                            <li>Формування пріоритету хоста модулем <strong>MLP</strong> (багатошаровий персептрон)</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <div class="alert alert-secondary small mt-3 mb-0">
+                <strong>Результат:</strong> система показує “Top host risks”, список епізодів за ризиком, події з деталями та підказує,
+                які вузли найімовірніше потребують реагування.
+            </div>
+        </div>
+    </div>
+
+    <!-- Основні модулі -->
     <div class="row g-4">
 
         <!-- CrowdStrike -->
         <div class="col-md-4">
             <div class="card h-100">
                 <div class="card-body">
-                    <h6 class="card-subtitle mb-2 text-muted">Модуль</h6>
+                    <h6 class="card-subtitle mb-2 text-muted">Джерело даних</h6>
                     <h5 class="card-title">CrowdStrike</h5>
                     <p class="card-text">
-                        Отримання інформації про хости, детекти та події безпеки
-                        з платформи CrowdStrike. Використовується як основне джерело
-                        технічних даних про інциденти.
+                        Використовується для отримання інформації про endpoint-и (хости) та детекції (detections).
+                        Це дає “сигнали” від EDR/XDR, які часто мають високий контекст інциденту.
                     </p>
+                    <ul class="small mb-3">
+                        <li>host inventory (hostname, IP, статус)</li>
+                        <li>detections (події безпеки, поведінка, IOC)</li>
+                    </ul>
                     <a href="{% url 'crowdstrike' %}" class="card-link">Перейти до хостів</a>
                 </div>
             </div>
@@ -53,30 +94,90 @@
         <div class="col-md-4">
             <div class="card h-100">
                 <div class="card-body">
-                    <h6 class="card-subtitle mb-2 text-muted">Модуль</h6>
-                    <h5 class="card-title">Wazuh (SIEM / XDR)</h5>
+                    <h6 class="card-subtitle mb-2 text-muted">Джерело даних</h6>
+                    <h5 class="card-title">Wazuh (SIEM)</h5>
                     <p class="card-text">
-                        Інтеграція з Wazuh для збору логів, подій безпеки та стану агентів.
-                        Доповнює дані CrowdStrike контекстом із хостів і лог-платформи,
-                        дозволяючи краще бачити картину інцидентів.
+                        Wazuh забезпечує збір логів з хостів, подій безпеки та стану агентів.
+                        Дає “низькорівневий” контекст: авторизації, процеси, системні події, правила, рівні тощо.
                     </p>
+                    <ul class="small mb-3">
+                        <li>agents (статус, ОС, last_keepalive)</li>
+                        <li>alerts / siem events (правила, level, опис, групи)</li>
+                    </ul>
                     <a href="{% url 'wazuh' %}" class="card-link">Перейти до Wazuh</a>
                 </div>
             </div>
         </div>
 
-        <!-- Персептрон -->
+        <!-- Уніфікація -->
         <div class="col-md-4">
             <div class="card h-100">
                 <div class="card-body">
-                    <h6 class="card-subtitle mb-2 text-muted">Модуль</h6>
-                    <h5 class="card-title">Персептрон</h5>
+                    <h6 class="card-subtitle mb-2 text-muted">Шар інтеграції</h6>
+                    <h5 class="card-title">Уніфікація подій</h5>
                     <p class="card-text">
-                        Експериментальний модуль з машинного навчання, який у майбутньому
-                        обчислюватиме <strong>коефіцієнт ризику</strong> для хостів та користувачів
-                        на основі історичних даних.
+                        Дані з різних джерел зводяться у спільну структуру. Це потрібно, щоб:
+                        (1) можна було порівнювати події, (2) групувати їх у епізоди, (3) будувати ML-ознаки.
                     </p>
-                    <a href="{% url 'perceptron' %}" class="card-link">Дивитись прототип</a>
+                    <ul class="small mb-0">
+                        <li>нормалізація hostname / IP</li>
+                        <li>єдині поля: time, severity, user, process, description</li>
+                        <li>позначення джерела: Wazuh / CrowdStrike</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- K-means -->
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h6 class="card-subtitle mb-2 text-muted">ML-модуль</h6>
+                    <h5 class="card-title">Кластеризація K-Means</h5>
+                    <p class="card-text">
+                        Епізоди подій перетворюються в числові вектори та кластеризуються методом K-Means.
+                        Це допомагає виділити типові сценарії активності (наприклад: “успішні логіни”, “серії помилок”, “детекти EDR”).
+                    </p>
+                    <ul class="small mb-0">
+                        <li>ознаки епізоду: кількість подій, max severity, унікальні користувачі/процеси</li>
+                        <li>вихід: <strong>cluster_id</strong> + внесок у <strong>risk_score</strong></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- NLP/BERT -->
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h6 class="card-subtitle mb-2 text-muted">NLP-модуль</h6>
+                    <h5 class="card-title">BERT-аналіз тексту подій</h5>
+                    <p class="card-text">
+                        Для семантичної інтерпретації описів подій використовується модуль BERT/NLP.
+                        Він додає контекст: що саме означає подія “людською мовою”, та чи має вона ознаки загрози.
+                    </p>
+                    <ul class="small mb-0">
+                        <li>вхід: текстові описи / message / rule.description</li>
+                        <li>вихід: <strong>bert_label</strong> + <strong>bert_score</strong></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- MLP -->
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h6 class="card-subtitle mb-2 text-muted">ML-модуль</h6>
+                    <h5 class="card-title">MLP (багатошаровий персептрон)</h5>
+                    <p class="card-text">
+                        Модуль пріоритезації хостів агрегує результати епізодів і формує підсумковий пріоритет активу.
+                        На вході — фічі по хосту (кількість епізодів, ризики, кластери, BERT-мітки), на виході — score/level.
+                    </p>
+                    <ul class="small mb-0">
+                        <li><strong>Архітектура:</strong> Input → Dense → ReLU → Dense → Sigmoid/Softmax</li>
+                        <li><strong>Результат:</strong> ai_priority_score (0..1) + ai_priority_level</li>
+                    </ul>
                 </div>
             </div>
         </div>
@@ -88,32 +189,63 @@
                     <h6 class="card-subtitle mb-2 text-muted">Фокус</h6>
                     <h5 class="card-title">Підтримка рішень</h5>
                     <p class="card-text">
-                        Система не замінює аналітика, а допомагає йому:
-                        швидше побачити критичні вузли, оцінити ризик та прийняти
-                        більш виважене рішення щодо реагування.
+                        Система допомагає в типовому циклі SOC:
+                        <strong>збір → кореляція → триаж → пріоритезація</strong>.
+                        Вона показує “де гаряче” і зменшує навантаження на ручний перегляд всіх логів.
                     </p>
+                    <ul class="small mb-0">
+                        <li>Top-5 хостів за AI-пріоритетом</li>
+                        <li>таблиця епізодів за ризиком</li>
+                        <li>деталі подій + контекст</li>
+                    </ul>
                 </div>
             </div>
         </div>
 
     </div>
 
-    <!-- Про автора / мету -->
+    <!-- Мета / обмеження -->
     <div class="card mt-4">
         <div class="card-body">
-            <h5 class="card-title mb-3">Мета розробки</h5>
+            <h5 class="card-title mb-3">Мета та обмеження прототипу</h5>
             <p class="card-text">
-                Проєкт створюється як частина навчальної / дослідницької роботи у сфері
+                Проєкт створюється як навчальна/дослідницька робота у сфері
                 <strong>інформаційної безпеки</strong> та <strong>data science</strong>.
-                Він демонструє, як поєднати дані з реальної системи захисту (CrowdStrike)
-                з аналітичними модулями та моделями машинного навчання.
+                Він демонструє підхід до інтеграції SIEM/EDR даних та побудови інтелектуальної надбудови для оцінки ризику.
             </p>
-            <p class="card-text mb-0">
-                Подальші кроки включають розширення інтеграцій, покращення UX,
-                а також впровадження повноцінної моделі оцінки ризику.
+
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <div class="border rounded p-3">
+                        <h6 class="mb-2">Сильні сторони</h6>
+                        <ul class="mb-0">
+                            <li>інтеграція декількох джерел (Wazuh + CrowdStrike)</li>
+                            <li>уніфікація подій і кореляція через епізоди</li>
+                            <li>ML/NLP компоненти (K-Means, BERT, MLP)</li>
+                            <li>візуалізація для SOC-триажу</li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="border rounded p-3">
+                        <h6 class="mb-2">Поточні обмеження</h6>
+                        <ul class="mb-0">
+                            <li>якість оцінки залежить від кількості/різноманіття подій</li>
+                            <li>для стабільності ML потрібне накопичення історичних даних</li>
+                            <li>частина скорингу базується на евристиках (особливо на ранньому етапі)</li>
+                            <li>прототип орієнтований на демонстрацію підходу, а не production-SOC</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <p class="card-text mt-3 mb-0">
+                Подальші кроки: підвищення стабільності моделей, накопичення датасету, покращення UX,
+                оптимізація запитів до API та розширення сценаріїв (MITRE-орієнтована кореляція, правила реагування).
             </p>
         </div>
     </div>
 
 </div>
 {% endblock %}
+
