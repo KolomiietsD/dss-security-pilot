@@ -108,6 +108,20 @@
         return { label, cls };
     }
 
+    // ✅ Кольори для severity у деталях подій
+    function severityBadgeClass(sev) {
+        const s = (sev || "").toString().trim().toLowerCase();
+
+        // якщо інколи прилітає "High", "HIGH", "critical" і т.п.
+        if (s.startsWith("crit")) return "bg-danger";
+        if (s.startsWith("high")) return "bg-warning text-dark";
+        if (s.startsWith("med"))  return "bg-primary";
+        if (s.startsWith("low"))  return "bg-success";
+
+        // якщо прилетів числовий рівень або інший формат — нейтрально
+        return "bg-secondary";
+    }
+
     function mapBertLabelToText(label) {
         // для nlptown/bert-base-multilingual-uncased-sentiment:
         // "1 star" .. "5 stars"
@@ -180,7 +194,6 @@
 
         const parts = [];
 
-        // Кількість подій та джерела
         parts.push(
             `Епізод містить ${events.length} подій (Wazuh: ${ep.num_events_wazuh || 0}, CrowdStrike: ${ep.num_events_crowdstrike || 0}).`
         );
@@ -189,19 +202,16 @@
             parts.push(`Джерела: ${Array.from(sources).join(", ")}.`);
         }
 
-        // Розподіл по рівнях важливості
         if (highCount || mediumCount || lowCount) {
             parts.push(
                 `Рівні важливості: high/critical – ${highCount}, medium – ${mediumCount}, low – ${lowCount}.`
             );
         }
 
-        // Типи подій
         if (types.size) {
             parts.push(`Типи подій (сценарії): ${Array.from(types).join(", ")}.`);
         }
 
-        // MITRE
         if (tactics.size) {
             parts.push(`MITRE тактики: ${Array.from(tactics).join(", ")}.`);
         }
@@ -209,12 +219,10 @@
             parts.push(`MITRE техніки: ${Array.from(techniques).join(", ")}.`);
         }
 
-        // Користувачі
         if (users.size) {
             parts.push(`Задіяні облікові записи: ${Array.from(users).join(", ")}.`);
         }
 
-        // Процеси
         if (processes.size) {
             const procs = Array.from(processes);
             const short = procs.slice(0, 4);
@@ -223,7 +231,6 @@
             );
         }
 
-        // Додаємо коротку згадку про BERT, якщо є
         if (ep.bert_label) {
             const sText = mapBertLabelToText(ep.bert_label);
             const prob = ep.bert_score != null ? ep.bert_score.toFixed(2) : null;
@@ -268,7 +275,6 @@
 
         detailsHeader.textContent = headerText;
 
-        // Підсумок епізоду
         buildEpisodeSummary(ep);
 
         const events = ep.events || [];
@@ -283,6 +289,7 @@
 
         events.forEach(function(ev) {
             const sev = ev.severity || "";
+            const sevCls = severityBadgeClass(sev); // ✅
             const src = ev.source || "";
             const ts = formatDate(ev.timestamp || ev.time);
             const descr = ev.description || ev.message || "";
@@ -325,7 +332,8 @@
             html += "</div>";
 
             if (sev) {
-                html += "<span class='badge bg-secondary'>" + sev + "</span>";
+                // ✅ тепер колір залежить від severity
+                html += "<span class='badge " + sevCls + "'>" + sev + "</span>";
             }
             html += "</div>";
 
@@ -374,7 +382,6 @@
             return;
         }
 
-        // Сортуємо за risk_score (спадання)
         episodes.sort(function(a, b) {
             const sa = a.risk_score || 0;
             const sb = b.risk_score || 0;
@@ -451,7 +458,6 @@
             });
     }
 
-    // Старт
     fetchEpisodes();
 })();
 </script>

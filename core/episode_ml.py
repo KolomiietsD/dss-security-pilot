@@ -1,11 +1,51 @@
 # core/episode_ml.py
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from sklearn.cluster import KMeans
 
 from .unified_events import _severity_to_score
+
+
+def _event_timestamp_str(ev: Dict[str, Any]) -> str:
+    """
+    Повертає timestamp як рядок (ISO), щоб можна було стабільно сортувати.
+    Пробує типові поля: timestamp / @timestamp / time / event_time.
+    """
+    if not isinstance(ev, dict):
+        return ""
+
+    for k in ("timestamp", "@timestamp", "time", "event_time", "systemTime"):
+        v = ev.get(k)
+        if isinstance(v, str) and v:
+            return v
+    return ""
+
+
+def _episode_sort_key(ep: Dict[str, Any]) -> str:
+    """
+    Стабільний ключ сортування епізодів.
+    1) якщо є start_time/start_ts/window_start/first_timestamp — беремо їх
+    2) інакше — беремо мінімальний timestamp серед events[]
+    3) fallback — порожній рядок
+    """
+    if not isinstance(ep, dict):
+        return ""
+
+    for k in ("start_time", "start_ts", "window_start", "first_timestamp", "start"):
+        v = ep.get(k)
+        if isinstance(v, str) and v:
+            return v
+
+    events = ep.get("events") or []
+    if isinstance(events, list) and events:
+        ts_list = [_event_timestamp_str(e) for e in events if isinstance(e, dict)]
+        ts_list = [t for t in ts_list if t]
+        if ts_list:
+            return min(ts_list)
+
+    return ""
 
 
 def build_episode_features(episode: Dict[str, Any]) -> List[float]:
@@ -35,17 +75,17 @@ def build_episode_features(episode: Dict[str, Any]) -> List[float]:
     users = {
         e.get("user_name")
         for e in events
-        if e.get("user_name")
+        if isinstance(e, dict) and e.get("user_name")
     }
     procs = {
-        e.get("process_name") or e.get("process")
+        (e.get("process_name") or e.get("process"))
         for e in events
-        if (e.get("process_name") or e.get("process"))
+        if isinstance(e, dict) and (e.get("process_name") or e.get("process"))
     }
     sources = {
         e.get("source")
         for e in events
-        if e.get("source")
+        if isinstance(e, dict) and e.get("source")
     }
 
     unique_users = float(len(users))
@@ -75,12 +115,20 @@ def analyze_episodes(
       - cluster_id: int
       - risk_score: float [0,1]
       - risk_level: "low" | "medium" | "high"
+
+    ВАЖЛИВО ДЛЯ СТАБІЛЬНОСТІ:
+    - сортуємо episodes стабільно (бо їх порядок може "плавати" через джерела/групування)
+    - k-means робимо детермінованим через random_state
     """
     if not episodes:
         return []
 
+    # 1) стабільний порядок епізодів
+    episodes_sorted = sorted(episodes, key=_episode_sort_key)
+
+    # 2) фічі
     feature_vectors: List[List[float]] = [
-        build_episode_features(ep) for ep in episodes
+        build_episode_features(ep) for ep in episodes_sorted
     ]
 
     effective_k = min(max(1, n_clusters), len(feature_vectors))
@@ -97,7 +145,7 @@ def analyze_episodes(
 
     analyzed: List[Dict[str, Any]] = []
 
-    for ep, label, feats in zip(episodes, labels, feature_vectors):
+    for ep, label, feats in zip(episodes_sorted, labels, feature_vectors):
         (
             duration,
             num_events,
@@ -121,6 +169,7 @@ def analyze_episodes(
             + cs_norm * 0.2
             + diversity_norm * 0.1
         )
+
         if risk_score >= 0.7:
             risk_level = "high"
         elif risk_score >= 0.4:

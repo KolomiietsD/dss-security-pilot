@@ -25,6 +25,18 @@
         }
     </style>
 
+    {# ===================== AI TOP HOSTS ===================== #}
+    <div id="ai-top-hosts-card" class="card mb-3 d-none">
+        <div class="card-header py-2">
+            <strong>Top-5 хостів за AI-пріоритетом</strong>
+        </div>
+        <div class="card-body py-2">
+            <ul id="ai-top-hosts-list" class="list-unstyled mb-0 small">
+                <!-- JS -->
+            </ul>
+        </div>
+    </div>
+
     {# ===================== УНІФІКОВАНІ АКТИВИ (ТАБЛИЦЯ + АКОРДЕОН) ===================== #}
     <h2 class="h4 mt-3 mb-2">Уніфіковані активи</h2>
 
@@ -50,6 +62,7 @@
                             <th style="width: 150px;">Платформа</th>
                             <th style="width: 160px;">Джерела</th>
                             <th style="width: 110px;">Ризик</th>
+                            <th style="width: 140px;">AI пріоритет</th>
                         </tr>
                     </thead>
                     <tbody id="unified-assets-tbody">
@@ -199,6 +212,67 @@ document.addEventListener("DOMContentLoaded", function () {
         } catch (e) {
             return iso;
         }
+    }
+
+    // ==== AI priority helpers ====
+    function getAiPriorityBadge(level) {
+        const lvl = (level || "low").toLowerCase();
+        let text = "Низький";
+        let cls = "badge bg-success";
+
+        if (lvl === "critical") {
+            text = "Критичний";
+            cls = "badge bg-danger";
+        } else if (lvl === "high") {
+            text = "Високий";
+            cls = "badge bg-warning text-dark";
+        } else if (lvl === "medium") {
+            text = "Середній";
+            cls = "badge bg-primary";
+        }
+
+        return '<span class="' + cls + '">' + text + '</span>';
+    }
+
+    function renderAiTopHosts(assets) {
+        const card = document.getElementById("ai-top-hosts-card");
+        const list = document.getElementById("ai-top-hosts-list");
+        if (!card || !list) return;
+
+        const withScore = (assets || []).filter(a => a.ai_priority_score != null);
+        if (!withScore.length) {
+            card.classList.add("d-none");
+            return;
+        }
+
+        withScore.sort((a, b) => (b.ai_priority_score || 0) - (a.ai_priority_score || 0));
+        const top = withScore.slice(0, 5);
+
+        list.innerHTML = "";
+        top.forEach(a => {
+            const li = document.createElement("li");
+            li.className = "d-flex justify-content-between align-items-center mb-1";
+
+            const left = document.createElement("div");
+            left.innerHTML =
+                '<strong>' + (a.hostname || "(без імені)") + '</strong>' +
+                (a.ip ? ' <span class="text-muted">(' + a.ip + ')</span>' : '');
+
+            const right = document.createElement("div");
+            const lvl = a.ai_priority_level || "low";
+            const score = a.ai_priority_score != null
+                ? Number(a.ai_priority_score).toFixed(2)
+                : "0.00";
+            right.innerHTML =
+                getAiPriorityBadge(lvl) +
+                '<span class="text-muted small ms-1">' + score + '</span>';
+
+            li.appendChild(left);
+            li.appendChild(right);
+            list.appendChild(li);
+        });
+
+        card.classList.remove("d-none");
     }
 
     // ===== УНІФІКОВАНІ АКТИВИ: елемент логу (Wazuh / CS / інше) =====
@@ -420,6 +494,12 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         }
 
+        const aiLevel = asset.ai_priority_level || "low";
+        const aiScore = asset.ai_priority_score != null
+            ? Number(asset.ai_priority_score)
+            : 0.0;
+        const aiScoreText = aiScore.toFixed(2);
+
         const mainTr = document.createElement("tr");
         const toggleTd = document.createElement("td");
         const toggleBtn = document.createElement("button");
@@ -448,6 +528,12 @@ document.addEventListener("DOMContentLoaded", function () {
         const riskTd = document.createElement("td");
         riskTd.textContent = riskText;
 
+        const aiTd = document.createElement("td");
+        aiTd.className = "small text-center";
+        aiTd.innerHTML =
+            getAiPriorityBadge(aiLevel) +
+            '<br><span class="text-muted">' + aiScoreText + '</span>';
+
         mainTr.appendChild(toggleTd);
         mainTr.appendChild(numTd);
         mainTr.appendChild(hostTd);
@@ -455,11 +541,12 @@ document.addEventListener("DOMContentLoaded", function () {
         mainTr.appendChild(platTd);
         mainTr.appendChild(srcTd);
         mainTr.appendChild(riskTd);
+        mainTr.appendChild(aiTd);
 
         const detailsTr = document.createElement("tr");
         detailsTr.className = "d-none unified-details-wrapper";
         const detailsTd = document.createElement("td");
-        detailsTd.colSpan = 7;
+        detailsTd.colSpan = 8;
         const detailsContainer = document.createElement("div");
         detailsContainer.className = "pt-2 small";
         detailsTd.appendChild(detailsContainer);
@@ -1068,6 +1155,9 @@ document.addEventListener("DOMContentLoaded", function () {
                 unifiedTbody.appendChild(buildUnifiedRow(a, index));
             });
 
+            // блок Top-5 AI
+            renderAiTopHosts(assets);
+
             // нижній блок CrowdStrike: тільки ті, де є sources.crowdstrike === true
             const csAssets = assets.filter(a => a.sources && a.sources.crowdstrike);
             if (!csAssets.length) {
@@ -1122,11 +1212,12 @@ document.addEventListener("DOMContentLoaded", function () {
             episodesLoader.classList.add("d-none");
             episodesError.textContent = "Помилка при завантаженні епізодів: " + err.message;
             episodesError.classList.remove("d-none");
-            episodesNoData.classList.remove("д-none");
+            episodesNoData.classList.remove("d-none");
         });
 });
 </script>
 
 {% endblock %}
+
 
 
